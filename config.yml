@@ -1,0 +1,171 @@
+##
+## config.yml - The configuration file for KnuttReads2Bins
+##
+
+
+#
+# Input/Output files
+#
+
+# Where to look for the read files
+read_input_dir: "input"
+
+# The pattern of the paired read files for a sample
+# The files have to be placed inside the input dir
+# {sample}: The name of the sample
+# {read,R1|R2}: The read direction of the read, either R1 or R2
+# They can either be ".fastq"(.fq) or ".fastq.gz"(fq.gz) files
+paired_read_files: "{sample}_{read}.fastq.gz"
+
+# Where to place the output files
+output_dir: "output"
+
+# Where to place reference/database files
+reference_dir: "reference_data"
+
+#
+# Adapter trimming configuration
+#
+
+# Use adapter trimmed read files for the other steps
+adaptertrim: true
+
+# Read https://cutadapt.readthedocs.io/en/latest/guide.html to
+# understand cutadapt adapter types!
+
+# Default adapter configuration
+# Nextera adapter regular 3' on R1 and R2
+def_adapter_conf: "-a CTGTCTCTTATACACATCTX -A CTGTCTCTTATACACATCTX"
+
+# Sample specific adapter configurations
+adapter_conf:
+  _examplesample: "-a CTGTCTCTTATACACATCT -A CTGTCTCTTATACACATCT --trim-n --max-n 0.1"
+# Minimum adapter overlap threshold for trimming (cutadapt -O)
+minimum_adapter_overlap: 6
+# Allowed adapter read errors per adapter bp (cutadapt -e )
+adapter_error_rate: 0.1
+# Reads shorter than this treshold after adapter
+# trimming will be discarded (cutadapt -m)
+minlength_after_adaptertrim: 10
+# Remove a fixed number of bases from R1/R2
+# Positive: Beginning, Negative: End
+# (cutadapt -u)
+fixcut_R1: 0
+fixcut_R2: 0
+
+
+#
+# Merging
+#
+
+# The value with which to quality trim, IF merging fails
+# (bbmerge.sh trimQ=)
+qaulity_trimvals: '10'
+# The merging strictness
+# "default" gives bbmerge no preset
+# (very,ultra,max)strict/loose, fast 
+# (bbmerge.sh strictness macros)
+merging_strictness: default
+
+
+#
+# Preparation for classification
+#
+
+# The 3' end quality score filter applied to the reads
+# R1 unmerged and merged both called as unpaired!
+# (cutadapt -q )
+classification_qual: 20 
+# Minimum length of the reads after trimming
+# (cutadapt -m)
+# Also used as minlength for Sina
+classification_minlen: 100
+# Perform sampling on the red files classification
+# unmerged R1 and merged reads are combined and 
+# then sampled.
+# Number of reads to draw (0 to disable)
+read_sampling: 0
+# The entropy limit passed to BBmask
+# https://jgi.doe.gov/data-and-tools/bbtools/bb-tools-user-guide/bbmask-guide/
+low_complex_entropy: 0.75
+
+
+#
+# Read classification
+#
+
+# Version of the silvadb
+silva_version: "132"
+# Path to the silva arb for this version
+silva_arb: "release_132/ARB_files/SILVA_132_SSURef_NR99_13_12_17_opt.arb.gz"
+# The (approx) minimum identity to a SSU gene for
+# BBmap filtering
+ssu_min_id: 0.76
+# The minimum fractional identity between a read and a reference
+# (sina --search-min-sim and --fs-msc)
+sina_min_sim: 0.7
+# The maximum number of hits to consider for classification (sina --search-max-result)
+sina_max_hits: 10
+# The fraction of the search result, that has to share thee same classification for
+# the lowest common ancestor determination (sina --lca-quorum)
+sina_lca_quorum: 0.7
+# The sina lca field to use for taxonomy construction
+sina_taxfield: "lca_tax_slv" 
+
+# Kaiju db to generate and use
+# See the following link for options and memory requirements
+# https://github.com/bioinformatics-centre/kaiju#creating-the-reference-database-and-index
+kaiju_db: "nr_euk"
+# The minimum match length
+kaiju_matchlen: 11
+# Use an low-complexity filter on the queries
+kaiju_lowcomplex_filter: true
+# The run mode for kaiju
+# "greedy" allows mismatches, "mem" doesn't 
+kaiju_mode: "greedy"
+# Allowed number of mismatches 
+kaiju_greedy_mismatches: 3
+# Minimum score for greedy mode
+kaiju_greedy_score: 65
+# Also use an e-value filter
+# -1 disables the evalue filter 
+kaiju_greedy_eval: -1
+
+## Read annotation
+
+# Only use the reviewed entries (SWISS Prot)
+readanno_uniprot_only_reviewed: false #
+# E-value for DIAMOND during read annotation
+readanno_evalue: 0.00001
+
+## Assembly
+
+# Minimum length of a contig for MEGAHIT and QUAST
+min_contiglen: 200
+# MEGAHIT options
+# See the MEGAHIT wiki for some tips on assembly
+# --min-count (multiplicity/depth) is set 
+# to 2 per default in megahit!
+#megahit_options: "--presets meta-sensitive"
+megahit_options: "--k-min 27  --k-step 10  --k-max 127"
+
+# k-mer Sizes for fastg files
+kmer_sizes_graph:
+  - 107
+  - 117
+  - 127
+
+
+# Number of reference to use in metaQuast, 0: none
+quast_noofrefs: 0 
+
+
+## Binning
+
+# The minimum length of a contig to be used for binning
+# This shouldn't be below 1500
+min_contiglen_binning: 2500
+# Minimum mean coverage for binning
+min_contigcov: 1
+# Minimum size of a bin
+min_binsize: 200000

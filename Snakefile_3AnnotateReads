@@ -1,0 +1,244 @@
+##
+## Snakefile_3AnnotateReads - Rules for read annotation
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# This file contains the rules for annotating reads using custom
+# databases. Some databases are built-in and others can be provided by
+# the user as files with UniProtKB queries.
+
+import csv
+import itertools
+
+# Read annotation results
+basedir_readanno=config["output_dir"]+"/ReadAnnotation"
+
+# The files to read UniProt queries from
+customdbs = glob_wildcards("data/readanno_{customfile}.tsv").customfile
+# The names of databases integrated into the workflow
+integrateddbs = ["CAZyDB","hyddb"]
+
+wildcard_constraints:
+   customfile="|".join(customdbs),
+   integrateddb="|".join(integrateddbs),
+   dbswithkrona="|".join(integrateddbs+customdbs)
+
+# Construct the query for a database name
+# This done by reading the file and joining the entries in the second
+# column with an OR.
+def construct_custom_query(wildcards):
+    with open("data/readanno_"+wildcards["customfile"]+".tsv",newline='') as hydrofile:
+        reader = csv.reader(hydrofile,delimiter="\t")
+        next(reader,None)
+        query =  "("
+        query += " OR ".join([row[1] for row in reader])
+        query += ")"
+        if(config["readanno_uniprot_only_reviewed"]):
+            query += " AND reviewed:yes"
+    return query
+
+# Download a custom protein database from a file giving UniProt queries
+uniproturl = "https://www.uniprot.org/uniprot/?query={params.query}&columns=id,entry name,reviewed,protein names,genes,organism,database(CAZy),protein name,comment(PATHWAY),ec,organism-id,lineage-id,sequence,database(KO)&format=tab&compress=yes"
+rule download_custom_query:
+   params:
+      query = construct_custom_query
+   output:
+      tsv = basedir_dbs+"/readanno/prot/raw/{customfile}.tsv",
+      fasta = basedir_dbs+"/readanno/prot/{customfile}.fasta"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("wget '"+uniproturl+"' -qO- | gunzip | tee {output.tsv} | "
+      "tail -n +2| awk -F '\\t' '{{print \">\"$1\"\\n\"$12}}' "
+      "> {output.fasta}")
+
+# Create the RData file with the taxanomy infomation and methods
+rule ncbi_translator:
+   input:
+      names=rules.download_ncbi_tax.output.names,
+      nodes=rules.download_ncbi_tax.output.nodes,
+   output:
+      basedir_dbs+"/ncbitax/ncbi_tax.RData"
+   conda: "envs/R.yml"
+   threads: 4
+   script:
+      "scripts/BuildDBs/prepNCBItax.R"
+
+
+# Add tax info to a custom downloaded database
+rule process_custom_query:
+   input:
+      db=rules.download_custom_query.output.tsv,
+      translator=rules.ncbi_translator.output
+   output:
+      db=basedir_dbs+"/readanno/prot/{customfile}.tsv",
+      krona=basedir_dbs+"/readanno/prot/{customfile}.krona"
+   conda:
+      "envs/R.yml"
+   threads:
+      8
+   script:
+      "scripts/BuildDBs/addTaxToCustomQueryDB.R"
+
+# Extract a tax map from the custom uniprot download
+rule custom_query_taxmap:
+   input:
+      rules.download_custom_query.output.tsv
+   output:
+      basedir_dbs+"/readanno/prot/{customfile}.taxmap"
+   shell:
+      "cat {input} | cut -f 1,10 > {output}"
+
+# Download the gi prot NCBI taxmap
+rule download_ncbi_prot_taxmap:
+   output:
+      basedir_dbs+"/ncbitax/ncbi_taxid_gi_prot.dmp"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("wget -qO- ftp.ncbi.nih.gov/pub/taxonomy/gi_taxid_prot.dmp.gz | "
+       "gunzip | tail -n +2 > {output}")
+
+# Download the accession prot NCBI taxmap
+rule download_ncbi_prot_acc_taxmap:
+   output:
+      filtered=basedir_dbs+"/ncbitax/ncbi_taxid_acc_prot_with_dead.dmp",
+      ori=basedir_dbs+"/ncbitax/prot.accession2taxid.gz",
+      dead=basedir_dbs+"/ncbitax/dead_prot.accession2taxid.gz"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("wget  -qO- ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/prot.accession2taxid.gz | "
+      "tee {output.ori} | gunzip | cut -f 2,3 | tail -n +2 > {output.filtered} && "
+      "wget  -qO- ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/dead_prot.accession2taxid.gz | "
+      "tee {output.dead} | gunzip | cut -f 2,3 | tail -n +2 >> {output.filtered}")
+
+
+# Get the taxmap for a given database
+def taxmap(wildcards):
+   if wildcards["blastdb"] in customdbs:
+      return expand(rules.custom_query_taxmap.output,
+                    customfile=wildcards["blastdb"])
+   return rules.download_ncbi_prot_acc_taxmap.output.filtered
+
+# Return compressed versions
+def compressed_taxmap(w): 
+   if isinstance(taxmap(w), list):
+      return [x+".dia.gz" for x in taxmap(w)]
+   else:
+      return taxmap(w)+".dia.gz"
+
+# Compress a taxmap file with filler content when needed
+rule compress_taxmap:
+   input:
+      basedir_dbs+"/{file}"
+   output:
+      basedir_dbs+"/{file}.dia.gz"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "sed \"s/.*/PXXXXX\t&\t9999999/\" {input} | gzip > {output}"
+
+hyddb_header = "Date1\tDate2\tsseqid\tHydDB_species\tHydrogenaseClass\tSequence\tnt_sequence1\tnt_sequence2\tHydDB_phylum\tHydDB_order\tPredictedActivity\tPredictedOxyTolerance\tPredictedSubunitsNumber\tPredictedMetalCentres\tPredictedSubunits"
+
+# Download the hydrogenases from HydDB
+rule download_hyddb:
+   output:
+      fasta=basedir_dbs+"/readanno/prot/hyddb.fasta",
+      tsv=basedir_dbs+"/readanno/prot/raw/hyddb.tsv"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("echo '"+hyddb_header+"' > {output.tsv} && wget -qO- "
+       "'https://services.birc.au.dk/hyddb/browser/download.csv?' | "
+       "tr ';' '\\t' | awk '/[^\"]\\r$/ {{ printf(\"%s\", $0); next }} 1' | "
+       "tr -d '\\r' | tee -a {output.tsv} | tr -d '\"' | "
+       "awk -F $'\\t' '{{print \">\"$3\"\\n\"$6}}' > {output.fasta}")
+
+# Download the CAZYdb from dbCAN2
+rule download_cazydb:
+   output:
+      fasta=basedir_dbs+"/readanno/prot/CAZyDB.fasta",
+      tsv=basedir_dbs+"/readanno/prot/raw/CAZyDB.tsv",
+      descr=basedir_dbs+"/readanno/prot/CAZyDB-fam-activities.txt"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("echo 'sseqid\tCAZyECs' > {output.tsv} && wget -qO- "
+       "http://bcb.unl.edu/dbCAN2/download/Databases/CAZyDB.07312019.fa | "
+       "tr '|' ' ' | tee {output.fasta} | grep '>' | tr -d '>' | "
+       "sed 's/ /\t/' >> {output.tsv} && wget -qO {output.descr} "
+       "http://bcb.unl.edu/dbCAN2/download/Databases/CAZyDB.07312018.fam-activities.txt")
+
+# Add tax info to a ascension based file
+rule process_custom_query_asc:
+   input:
+      db=basedir_dbs+"/readanno/prot/raw/{integrateddb}.tsv",
+      translator=rules.ncbi_translator.output,
+      asctax=rules.download_ncbi_prot_acc_taxmap.output.filtered
+   output:
+      db=basedir_dbs+"/readanno/prot/{integrateddb}.tsv",
+      krona=basedir_dbs+"/readanno/prot/{integrateddb}.krona"
+   conda:
+      "envs/R.yml"
+   threads:
+      8
+   script:
+      "scripts/BuildDBs/addTaxToAscDB.R"
+
+# Download Expasy Enzyme database
+rule download_enzyme:
+   output:
+      enzyme=basedir_dbs+"/enzymes/expasy_enzyme.dat",
+      classes=basedir_dbs+"/enzymes/expasy_enzyme_classes.txt"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("wget -qO- ftp://ftp.expasy.org/databases/enzyme/enzyme.dat > {output.enzyme} && "
+       "wget -qO- ftp://ftp.expasy.org/databases/enzyme/enzclass.txt > {output.classes}")
+
+# Build a diamond reference
+rule diamond_index:
+   input:
+      seqs=basedir_dbs+"/readanno/prot/{blastdb}.fasta",
+      taxmap=compressed_taxmap,
+      taxnodes=rules.download_ncbi_tax.output.nodes
+   params:
+      db=basedir_dbs+"/readanno/prot/{blastdb}"
+   output:
+      basedir_dbs+"/readanno/prot/{blastdb}.dmnd"
+   log:
+      basedir_dbs+"/readanno/prot/{blastdb}.std.log"
+   threads: 30
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("diamond makedb -p {threads} --db {params.db} --in {input.seqs} "
+       "-v --taxonmap {input.taxmap} --taxonnodes {input.taxnodes} &> {log}")
+
+
+# Run DIAMOND against a database, using the masked query files
+blastcolumns = ["qseqid","sseqid","pident","length","mismatch","gapopen",
+                "qstart","qend","sstart","send","evalue","bitscore",
+                "staxids","stitle","qlen","slen"]
+rule diamond_run:
+   input:
+      db=rules.diamond_index.output,
+      query=classfication_fastq()
+   params:
+      db=rules.diamond_index.params.db,
+      columns=" ".join(blastcolumns),
+      evalue='{:.20f}'.format(config["readanno_evalue"])
+   output:
+      basedir_readanno+"/{sample}/{sample}_prot_{blastdb}_blast.tsv"
+   log: 
+      basedir_readanno+"/{sample}/{sample}_prot_{blastdb}_blast.log"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads:
+      30
+   shell:
+      ("diamond blastx --db {params.db} --query {input.query} "
+       "--out {output} --outfmt 6 {params.columns} "
+       "--evalue {params.evalue} -p {threads} &> {log}")
+

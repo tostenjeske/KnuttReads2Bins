@@ -1,0 +1,149 @@
+##
+## Snakefile_5Binning - Binning rules
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# This Snakefile uses metaBAT2 for binning and checkM for bin analysis.
+# Each bin receives classification and depth data.
+
+# Binning results
+basedir_binning = config["output_dir"]+"/Binning"
+
+# Calculate the depth for metabat using its depth tool
+rule metabat_depth:
+   input:
+      contigs = rules.megahit_assembly.output.contigs,
+      bam = rules.map_reads.output.bam,
+      bai = rules.map_reads.output.bai
+   output:
+      depth = basedir_binning+"/metabat/{sample}/{sample}_jgi_summarize_depth.tsv"
+   conda:
+      "envs/Knutt2Reads2Bins.yml" 
+   log:
+      basedir_binning+"/metabat/{sample}/{sample}_jgi_summarize_depth.log"
+   shell:
+      ("jgi_summarize_bam_contig_depths --outputDepth {output.depth} "
+       "--referenceFasta {input.contigs} {input.bam} &> {log}")
+
+# Run metabat2
+rule metabat:
+   input:
+      contigs = rules.megahit_assembly.output.contigs,
+      depth = rules.metabat_depth.output
+   params:
+      prefix = basedir_binning+"/metabat/{sample}/bins/{sample}"
+   output:
+      dir = directory(basedir_binning+"/metabat/{sample}/bins"),
+      unbinned = basedir_binning+"/metabat/{sample}/{sample}.unbinned.fa",
+      lowdepth = basedir_binning+"/metabat/{sample}/{sample}.lowDepth.fa",
+      tooshort = basedir_binning+"/metabat/{sample}/{sample}.tooShort.fa"
+   conda:
+      "envs/Knutt2Reads2Bins.yml" 
+   log:
+      basedir_binning+"/metabat/{sample}/{sample}_metabat2.log"
+   threads: 30
+   shell:
+      ("{{ metabat2 -i {input.contigs} -a {input.depth} "
+       "-m {config[min_contiglen_binning]} -x {config[min_contigcov]} "
+       "-s {config[min_binsize]} -t {threads} -v -o {params.prefix} "
+       "--unbinned --seed 42 && "
+       "mv {params.prefix}.unbinned.fa {params.prefix}.lowDepth.fa "
+       "{params.prefix}.tooShort.fa {output.dir}/.. ; }} &> {log}")
+
+# Download checkM data and set data root
+rule checkm_data:
+   output:
+      dat=basedir_dbs+"/checkmdata/taxon_marker_sets.tsv",
+   params:
+      dir=basedir_dbs+"/checkmdata/"
+   conda:
+      "envs/Knutt2Reads2Bins.yml" 
+   shell:
+      ("wget -qO- https://data.ace.uq.edu.au/public/CheckM_databases/checkm_data_2015_01_16.tar.gz | "
+      "tar xzf - -C {params.dir} && checkm data setRoot {params.dir}")
+
+# Run checkM on a sample
+rule checkm_sample:
+   input:
+      rules.checkm_data.output,
+      indir=rules.metabat.output.dir
+   output:
+      sreport=basedir_binning+"/checkm/{sample}/checkm_{sample}.tsv",
+      outdir=directory(basedir_binning+"/checkm/{sample}/{sample}_checkm_data/")
+   log:
+      basedir_binning+"/checkm/{sample}/{sample}_checkm_wf.log"
+   params:
+      datadir=rules.checkm_data.params.dir
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 8
+   shell:
+      ("checkm lineage_wf -f {output.sreport} --tab_table -x fa "
+       " -t {threads} {input.indir} {output.outdir} &> {log}")
+
+# Calculate checkm help files
+rule checkm_extra_data:
+   input:
+      rules.checkm_data.output,
+      indir=rules.checkm_sample.input.indir,
+      contigs=rules.metabat.input.contigs,
+      mapped=rules.map_reads.output.bam,
+      mappedi=rules.map_reads.output.bai,
+   output:
+      tetras=basedir_binning+"/checkm/{sample}/{sample}_tetras.tsv",
+      cov=basedir_binning+"/checkm/{sample}/{sample}_checkm_cov.tsv",
+      profile=basedir_binning+"/checkm/{sample}/{sample}_checkm_profile.tsv",
+   log:
+      basedir_binning+"/checkm/{sample}/{sample}_checkm_helperfiles.log"
+   threads: 15
+   params:
+      datadir=rules.checkm_data.params.dir
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("{{ checkm tetra -t {threads} {input.contigs} {output.tetras} && "
+       "checkm coverage -x fa -t {threads} {input.indir} {output.cov} {input.mapped} && "
+       "checkm profile --tab_table -f {output.profile} {output.cov} ; }} &> {log}")
+
+
+# Filter and add bins names to CAT proteins for BAT
+rule filter_cat_proteins:
+   input:
+      indir=rules.metabat.output.dir,
+      proteins = rules.classify_contigs.output[2],
+      aligned = rules.classify_contigs.output[3]
+   output:
+      proteins = basedir_binning+"/bin_classification/{sample}/{sample}.bins.predicted_proteins.faa",
+      aligned = basedir_binning+"/bin_classification/{sample}/{sample}.bins.alignment.diamond"
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("scripts/Pipeline/addBinsCATfileForBAT.py -b {input.indir} -s .fa "
+       "-p {input.proteins} -d {input.aligned} -P {output.proteins} "
+       "-D {output.aligned}")
+
+# Classify the bins
+rule classify_bins:
+   input:
+      rules.index_cat_bat.input,
+      indir=rules.metabat.output.dir,
+      db = rules.index_cat_bat.output,
+      proteins = rules.filter_cat_proteins.output.proteins,
+      aligned = rules.filter_cat_proteins.output.aligned,
+   params:
+      taxdir = rules.download_ncbi_tax.params.dir,
+      prefix = basedir_binning+"/bin_classification/{sample}/{sample}"
+   output:
+      basedir_binning+"/bin_classification/{sample}/{sample}.bin2classification.txt"
+   log:
+      basedir_binning+"/bin_classification/{sample}/{sample}_BAT.log"
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 8
+   shell:
+      ("CAT bins -b {input.indir} -s .fa -d {input.db} -t {params.taxdir} "
+       "-o {params.prefix} -n {threads} -p {input.proteins} -a {input.aligned} &> {log}")
+
+rule temp:
+	input:
+		expand(rules.classify_bins.output,sample=sample_names)

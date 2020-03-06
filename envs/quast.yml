@@ -1,0 +1,7 @@
+name: Quast
+channels:
+  - conda-forge
+  - bioconda
+  - genomedk
+dependencies:
+  - quast=5.0.2

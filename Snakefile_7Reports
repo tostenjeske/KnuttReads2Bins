@@ -1,0 +1,278 @@
+##
+## Snakefile_7Reports - Reporting rules
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# These rules the data export to generate html reports for the different
+# steps which allow the comparison of the samples.
+
+from itertools import product
+
+basedir_reporting = config["output_dir"]+"/Reports"
+
+# Create a sample, read data structure to show this info on
+# supplied fastqc files
+def samplereaddata(seqtype):
+   res = list(product(sample_names,readtypes_fortype[seqtype]))
+   res = [[el[i] for el in res] for i in range(2)]
+   res = dict(zip(("sample","readdirection"),res))
+   return res
+
+# Copy a fastqc file 
+rule copyfastqc:
+   input:
+      lambda w: fastQC_for_file(fastqfile(w,w["seqtype"]))
+   output:
+      basedir_reporting+"/FastQC/{sample}_{readtype}_{seqtype}_fastqc.html"
+   shell:
+      "cp {input} {output}"
+
+# Create raw sequence report
+rule rawReport:
+   input:
+      overview=expand(rules.seqdata.output,seqtype="raw",seqdat="overview"),
+      toplot=expand(rules.seqdata.output,seqtype="raw",seqdat="plotdata"),
+      commons="scripts/Reports/commonReport.R",
+      fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype="raw",readtype=readtypes_fortype["raw"])
+   params:
+      fastqc=samplereaddata("raw")
+   output:
+      basedir_reporting+"/1raw-reads.html"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/raw-reads.Rmd"
+
+# Create trimming report
+rule trimReport:
+   input:
+      raw_overview=rules.rawReport.input.overview,
+      raw_toplot=rules.rawReport.input.toplot,
+      mergedata_untrimmed = expand(rules.mergeData.output,trimmed=adpt_poss[1]),
+      mergedata_trimmed = expand(rules.mergeData.output,trimmed=adpt_poss[0]),
+      trimming_summary = rules.adapterTrimmingData.output, 
+      trimmed_overview=expand(rules.seqdata.output,seqtype="trimmed",seqdat="overview"),
+      trimmed_toplot=expand(rules.seqdata.output,seqtype="trimmed",seqdat="plotdata"),
+      trim_summary_beforeafter = expand(rules.compseqdata.output,seqtypebef="raw",seqtypeaf="trimmed"),
+      commons="scripts/Reports/commonReport.R",
+      fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype="trimmed",readtype=readtypes_fortype["trimmed"])
+   params:
+      fastqc=samplereaddata("trimmed"),
+      adapters=lambda w: {sample:config["adapter_conf"].get(sample,config["def_adapter_conf"]) for sample in sample_names}
+   output:
+      basedir_reporting+"/2trimming.html"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-trimming.Rmd"
+
+# Create merge report
+rule mergeReport:
+   input:
+      mergedata_untrimmed = rules.trimReport.input.mergedata_untrimmed,
+      mergedata_trimmed = rules.trimReport.input.mergedata_trimmed,
+      mergdata_trimmed_details = expand(rules.mergeInsertData.output,trimmed=adpt_poss[0]),
+      merging_trimmed_overview=expand(rules.seqdata.output,seqtype="merging_tr",seqdat="overview"),
+      merging_trimmed_toplot=expand(rules.seqdata.output,seqtype="merging_tr",seqdat="plotdata"),
+      merging_untrimmed_overview=expand(rules.seqdata.output,seqtype="merging_untr",seqdat="overview"),
+      merging_untrimmed_toplot=expand(rules.seqdata.output,seqtype="merging_untr",seqdat="plotdata"),
+      merging_trimmed_fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype="merging_tr",readtype=readtypes_fortype["merging_tr"]),
+      merging_untrimmed_fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype="merging_untr",readtype=readtypes_fortype["merging_untr"]),
+      commons="scripts/Reports/commonReport.R",
+   params:
+      merging_trimmed_fastqc=samplereaddata("merging_tr"),
+      merging_untrimmed_fastqc=samplereaddata("merging_untr"),
+   output:
+      basedir_reporting+"/3read-merging.html"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-merging.Rmd"
+
+qctrim = "qctrimmed_"+(adpt_poss[0] if config["adaptertrim"] else adpt_poss[1])
+merg = "merging_"+(adpt_poss[0] if config["adaptertrim"] else adpt_poss[1])
+
+# Create read anaprep report
+rule readanaprepreport:
+   input:
+   # Read ana prep
+      readanno_overview=expand(rules.seqdata.output,seqtype=qctrim,seqdat="overview"),
+      readanno_toplot=expand(rules.seqdata.output,seqtype=qctrim,seqdat="plotdata"),
+      readanno_sampled_overview=expand(rules.seqdata.output,seqtype="readanno",seqdat="overview"),
+      readanno_sampled_toplot=expand(rules.seqdata.output,seqtype="readanno",seqdat="plotdata"),
+      readanno_qctrim=expand(rules.qulitytrim_data.output,trimmed=adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]),
+      readdanno_prep_summary_beforeafter=expand(rules.compseqdata.output,seqtypebef=merg,seqtypeaf=qctrim),
+      readanno_fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype=qctrim,readtype=readtypes_fortype[qctrim]),
+      readanno_sampled_fastqc=expand(rules.copyfastqc.output,sample=sample_names,seqtype="readanno",readtype=readtypes_fortype["readanno"]),
+      commons="scripts/Reports/commonReport.R",
+   params:
+      readanno_fastqc=samplereaddata(qctrim),
+      readanno_sampled_fastqc=samplereaddata("readanno"),
+   output:
+     basedir_reporting+"/4read-ana-prep.html"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-ana-prep.Rmd"
+
+# Create SSU report
+rule ssureport:
+   input:
+      readanno_sampled_overview=rules.readanaprepreport.input.readanno_sampled_overview,
+      readanno_sampled_toplot=rules.readanaprepreport.input.readanno_sampled_toplot,
+      classSSUdata = rules.readclass_SSU.output,
+      commons="scripts/Reports/commonReport.R",
+   params:
+      silvatax = config["sina_taxfield"]
+   output:
+      basedir_reporting+"/5.1SSUreport.html"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-SSU.Rmd"
+
+# Create kaiju report
+rule kaijureport:
+   input:
+      readanno_sampled_overview=rules.readanaprepreport.input.readanno_sampled_overview,
+      readanno_sampled_toplot=rules.readanaprepreport.input.readanno_sampled_toplot,
+      classkaijudata = rules.kaiju_data.output,
+      commons="scripts/Reports/commonReport.R",
+   output:
+      basedir_reporting+"/5.2kaijureport.html"
+   threads:
+      1
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-kaiju.Rmd"
+
+# Convert sina results into krona tsv files
+rule sina_krona_file:
+   input:
+      sinacsv = rules.classify_ssu.output.csv,
+   params:
+      taxfield = config["sina_taxfield"]
+   output:
+      kronatext = basedir_reporting+"/{sample}_krona_readclass_SSU.tsv"
+   script:
+      "scripts/DataExtraction/parseSINAforKrona.py"
+
+# Convert kaiju results into krona tsv files
+rule kaiju_krona_file:
+   input:
+      kaiju=rules.kaiju_sample.output.out,
+      nodes=rules.kaiju_sample.input.nodes,
+      names=rules.kaiju_sample.input.names
+   output:
+      bkronatext = basedir_reporting+"/{sample}_krona_readclass_kaiju.tsv"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "kaiju2krona -t {input.nodes} -n {input.names} -i {input.kaiju} -o {output}"
+
+# Produce a krona html file
+rule krona:
+   input:
+      expand(basedir_reporting+"/{sample}_krona_{{krona_type}}.tsv",sample=sample_names)
+   output:
+      basedir_reporting+"/{krona_type}_krona.html"
+   params:
+      pairs=lambda w:[file+","+name for file,name in zip(expand(basedir_reporting+"/{sample}_krona_{krona_type}.tsv",sample=sample_names,**w),sample_names)]
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell: "ktImportText -o {output} -n All {params.pairs}"
+
+# Copy db krona data for read annotations
+rule copydbkrona:
+   input:
+      basedir_dbs+"/readanno/prot/{dbswithkrona}.krona"
+   output:
+      temp(basedir_reporting+"/DB_krona_{dbswithkrona}.tsv")
+   shell:
+      "cp {input} {output}"
+
+ruleorder: kronawithdb > krona
+
+# Construct krona html with database
+rule kronawithdb:
+   input:
+      expand(basedir_reporting+"/{sample}_krona_{{dbswithkrona}}.tsv",sample=sample_names+["_DB"])
+   output:
+      basedir_reporting+"/{dbswithkrona}_krona.html"
+   params:
+      pairs=lambda w:[file+","+name for file,name in zip(expand(basedir_reporting+"/{sample}_krona_{dbswithkrona}.tsv",sample=sample_names+["_DB"],**w),sample_names+["_DB"])]
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell: "ktImportText -o {output} -n All {params.pairs}"
+
+# Construct krona tsv file from a read BLAST annotation
+rule read_anno_krona_file:
+   input:
+      rules.customblastanno.output[0].replace("{db}","{dbswithkrona}"),
+   output:
+      basedir_reporting+"/{sample}_krona_{dbswithkrona}.tsv"
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/DataExtraction/kronaFromTaxCols.R"
+
+def getReadAnnoScript(w):
+   script=expand("scripts/Reports/readanno_{dbswithkrona}.Rmd",**w)[0]
+   if os.path.isfile(script):
+      return script
+   else:
+      return "scripts/Reports/readanno_customdb.Rmd"
+
+# Create read anno report
+rule readannoreport_db:
+   input:
+      readanno_sampled_overview=rules.readanaprepreport.input.readanno_sampled_overview,
+      readanno_sampled_toplot=rules.readanaprepreport.input.readanno_sampled_toplot,
+      commons="scripts/Reports/commonReport.R",
+      db=basedir_dbs+"/readanno/prot/{dbswithkrona}.tsv",
+      hits=rules.annodata.output[0].replace("{db}","{dbswithkrona}"),
+      script=getReadAnnoScript
+   output:
+      basedir_reporting+"/6readanno_{dbswithkrona}.html"
+   threads:
+      1
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/renderReport.R"
+
+# Create assembly report
+rule assemblyreport:
+   input:
+      metaquast=rules.metaquastdata.output,
+      covdetails=rules.covdata_details.output,
+      covsum=rules.covdata.output,
+      jgicovdetails=rules.jgi_depthdata.output,
+      commons="scripts/Reports/commonReport.R",
+   output:
+      basedir_reporting+"/7assembly.html"
+   threads:
+      1
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/read-SSU.Rmd"
+
+
+# Create binning report
+rule binningreport:
+   input:
+      checkm_profile=rules.checkmprofile.output,
+      checkm_lineage=rules.checkm_lineage.output,
+      tetras=expand(rules.checkmextrafiles.output,file="tetras"),
+      checkmcov=expand(rules.checkmextrafiles.output,file="checkm_cov"),
+      commons="scripts/Reports/commonReport.R",
+   output:
+      basedir_reporting+"/8binning.html"
+   threads:
+      1
+   conda:
+      "envs/R.yml"
+   script:
+      "scripts/Reports/binning.Rmd"

@@ -1,0 +1,169 @@
+---
+title: "Raw Reads"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+```{r, include=FALSE}
+suppressPackageStartupMessages(require(data.table))
+if(exists("snakemake")){
+  sampleoverview_raw.file <- snakemake@input[["overview"]]
+  tplot_raw.file <- snakemake@input[["toplot"]]
+  commonscript.file = snakemake@input[["commons"]]
+  threads=snakemake@threads
+  fastqcreports = as.data.table(snakemake@params[["fastqc"]])
+  fastqcreports[,qcreport:=snakemake@input[["fastqc"]]]
+}else{
+  commonscript.file = "commonReport.R"
+  sampleoverview_raw.file <- "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/sequence_data/raw/raw_overview.tsv"
+  tplot_raw.file <- "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/sequence_data/raw/raw_plotdata.tsv"
+  data.dir <- "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/"
+  "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/sequence_data/raw/"
+  threads=NA
+  fastqcreports = list(Larrelt=list(R1="bla/bla.html",R2="bla/bla.df"))
+}
+source(commonscript.file)
+commonOptions(threads)
+
+sampleoverview_raw <- fread(sampleoverview_raw.file)
+tplot_raw <- fread(tplot_raw.file)
+```
+
+Overview
+==================
+
+
+Row
+--------------------------------------
+
+### Application Note
+
+This report summarizes the raw read datasets which have been used in the analysis. For performace reasons, the data is precalculated during the workflow run and stored in two files. They include everything needed to generate the following plots.
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(c(tplot_raw.file,sampleoverview_raw.file)))
+```
+> The table shows the files which have been used to generate this report.
+
+
+Row
+--------------------------------------
+
+### Read files overview
+
+```{r}
+sampleoverview_raw.vis = sampleoverview_raw[,.(sample,readdirection,minReadLen,maxReadLen,reads)]
+sampleoverview_raw.vis = fastqcreports[sampleoverview_raw.vis,on=c("sample","readdirection")]
+sampleoverview_raw.vis[,qcreport:=formatasLink(qcreport)]
+colnam = c(sample="Sample",readdirection="Read Direction",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
+setnames(sampleoverview_raw.vis,names(colnam),colnam)
+datatable(sampleoverview_raw.vis,escape = F)
+```
+
+>The reads for the samples analyzed. The links to the read files themself are not contained within the Analysis directory, but the [FASTQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) reports.
+
+Row
+-----------------------------------------------------------------------
+
+### Read Pair Count
+
+```{r}
+dat=sampleoverview_raw[readdirection=="R1",]
+ggplotly(ggplot(dat, aes(x=sample, y=reads, fill=sample,text=paste0(dat$sample,": ",as.character(dat$reads)," Reads"))) + 
+  geom_bar(stat = "identity") + labs(fill = "Sample") + theme(legend.position = "none") + scale_fill_brewer(palette = sample_palette) + xlab ("Sample") +ylab("Read pairs"),tooltip=c("text"))
+```
+
+>The number of reads pairs(sequences) the raw files contained for each sample (taken from R1).
+
+### Base Pair Count
+
+```{r}
+dat=sampleoverview_raw[,.(nts=sum(basepairs)),by=c("sample","readdirection")]
+dat[,nts:=as.double(nts/10^6)]
+ggplotly(ggplot(dat, aes(x=sample, y=nts,fill=readdirection,group=interaction(sample,readdirection),text=paste0(dat$sample," (",dat$readdirection,"): ",as.character(round(dat$nts))," Mbp"))) + 
+  geom_bar(stat = "identity",position = "dodge")+ scale_fill_brewer(palette = readdirection_palette) + xlab("Sample") + ylab("Read basepairs in Mbp") + labs(fill = "Read Direction") ,tooltip=c("text")) 
+```
+
+>The number of base pairs contained in each sample and read.
+
+Row
+-----------------------------------------------------------------------
+
+### Read length
+
+```{r}
+dat = tplot_raw[type=="readlength_density" & x>=min(sampleoverview_raw$minReadLen) & x<=max(sampleoverview_raw$maxReadLen),]
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+```
+
+> The read length in each sample and direction. The plot has been trimmed at the actual min and max read lengths.
+
+
+### GC content
+
+```{r}
+dat = tplot_raw[type=="gccontent_density" & x>=0 & x<=1,]
+dat[,x:=x*100]
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("GC Content") + ylab("Density Estimate") + scale_x_continuous(labels = function(x) paste0(x, "%"))+theme(legend.title = element_blank())) 
+```
+
+> The distribution of the GC content in each sample and read direction. The estimated kernel density is trimmed at 0 and 100%.
+
+Row
+-----------------------------------------------------------------------
+
+### Sequence Quality Scores
+
+```{r}
+dat = tplot_raw[type=="avg_seq_qual_dens",]
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+```
+
+> The distribution of the average Phred score for the whole reads. This density estimate has not been cut!
+
+
+
+### Cycle Quality Scores
+
+```{r}
+ggplotly(ggplot(tplot_raw[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","readdirection","x")]) + aes(x=x,y=median,color=sample,linetype=readdirection) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
+```
+
+> The median of the phred score at the given cycle/position for a sample and read direction. See the next tab for a occurence heatmap
+
+
+
+Phred Score Heatmaps
+==================
+
+Row
+--------------------------------------
+
+### Note
+
+White areas are values which don't appear even a single time. Illumina decided at one point to bin the Phred scores to reduce the (compressed) file size. This does not impact accuracy or SNP mapping, as shown in their [white paper](https://www.well.ox.ac.uk/ogc/wp-content/uploads/2017/09/whitepaper_datacompression.pdf).
+
+
+```{r,results="asis",eval=T,message=F}
+dat = tplot_raw[type=="cycle_qual_counts",]
+setnames(dat,c("x","y","z"),c("Cycle","Phred Score","Count"))
+dat = split(dat,dat$sample)
+plots <- lapply(dat,function(sample)lapply(split(sample,sample$readdirection),function(dt)plot_ly(dt,x=~Cycle,y=~`Phred Score`,z=~Count,type = "heatmapgl")%>% layout(xaxis=list(title="Cycle"),yaxis=list(title="Phred Score"))))
+for(samplename in names(plots)){
+  drawrow()
+  drawplotasis(paste0("Quality Occurence Heatmap: ",samplename," R1"),"The distribution of the phred scores for a sample and read direction at the given cycle/position",plots[[samplename]][["R1"]])
+  drawplotasis(paste0("Quality Occurence Heatmap: ",samplename," R2"),"The distribution of the phred scores for a sample and read direction at the given cycle/position",plots[[samplename]][["R2"]])
+}
+
+```
+

@@ -1,0 +1,156 @@
+---
+title: "Assembly"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+```{r, include=FALSE}
+if(exists("snakemake")){
+  metaquast.file = snakemake@input[["metaquast"]]
+  cov.details.file = snakemake@input[["covdetails"]]
+  cov.summary.file = snakemake@input[["covsum"]]
+  jgi_cov.details.file = snakemake@input[["jgicovdetails"]]
+  commonscript.file = snakemake@input[["commons"]]
+  threads=snakemake@threads
+}else{
+  metaquast.file = "~/Desktop/Desktop/metaquast.tsv"
+  cov.details.file = "~/Desktop/Desktop/cov_pileup_details.tsv"
+  cov.summary.file = "~/Desktop/Desktop/cov_pileup_summary.tsv"
+  jgi_cov.details.file = "~/Desktop/Desktop/cov_metabat2_details.tsv"
+  commonscript.file = "commonReport.R"
+  threads=NA
+}
+taxcols=c("superkingdom","phylum","class","order","family","genus","species")
+files = c(metaquast.file,cov.details.file,cov.summary.file,jgi_cov.details.file)
+source(commonscript.file)
+commonOptions(threads)
+require(tidyr)
+
+
+metaquast = fread(metaquast.file)
+metaquast[, Assembly := NULL]
+cov.details = fread(cov.details.file)
+cov.details[,Length:=as.numeric(Length)]
+cov.details[,Ref_GC:=NULL]
+cov.summary =  fread(cov.summary.file)
+jgi_cov.details = fread(jgi_cov.details.file)
+```
+
+Overview
+=================
+
+Row
+--------------------------------------
+
+### Application Note
+
+The assembly was done with [MEGAHIT](https://github.com/voutcn/megahit) using the merged and unmerged reads. The analysis of the resulting assemblies was done with [MetaQUAST](http://quast.sf.net/metaquast). The raw reads were mapped onto the assembly with BBmap, once with the parameters as described by the MEGAHIT, aswell as with the parameters used in the paper for MetaBAT 2. For the mapping resulting from the MEGAHIT parameters, the BBmap pileup.sh script and for MetaBAT 2 the program jgi_summarize_bam_contig_depths included in MetaBAT2 was used to calculate contig coverage. In jgi_summarize_bam_contig_depths the coverage is corrected for sequencing errors and strain variation.
+
+The Nx values are the length of the contig at which x percent of cumulative contig length is reached (sorted by contig length descending). Lx values are the minimal number of contigs, which is needed to construct x% of the cumulative length.
+
+
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(files))
+```
+> The table shows the files which have been used to generate this report.
+
+
+Row
+--------------------------------------
+
+
+### MetaQUAST
+
+```{r}
+metaquast.visiblecols <- !(grepl("# contigs (",colnames(metaquast),fixed=T)|(grepl("Total length (",colnames(metaquast),fixed=T)))
+DT::datatable(metaquast[,..metaquast.visiblecols])
+```
+
+> Data on the samples as calculated by MetaQUAST. BUSCO searches for Universal-Single Copy Orthologs (Bacteria dataset) in the entire sample, this should be always almost complete. The mapping of the reads was performed as described by the authors of MEGAHIT.
+
+Row
+-----------------------------------------------------------------------
+
+### N50/N75 L50/75
+
+```{r}
+metaquast.stats_molten = metaquast[,c("sample",colnames(metaquast)[grepl("[NL]\\d\\d",colnames(metaquast))]),with=F]
+metaquast.stats_molten = melt(metaquast.stats_molten,id.vars="sample")
+metaquast.stats_molten[,NL:=gsub("([NL])\\d\\d","\\1",variable)]
+ggplotly(ggplot(metaquast.stats_molten, aes(x=sample, y=value, fill=variable)) + 
+  geom_bar(stat = "identity",position = "dodge")+facet_wrap(~NL,scales = "free_y")+theme(axis.text.x = element_text(angle = 33))+xlab("For L: number of contigs  For N: size of contig in bp") + xlab("Sample"))
+```
+
+> The N and L valuesfor 50 and 75, calculated by MetaQUAST.
+
+
+### Number of Contigs
+```{r}
+metaquast.contigs_molten = metaquast[,c("sample",colnames(metaquast)[grepl("# contigs (",colnames(metaquast),fixed=T)]),with=F]
+metaquast.contigs_molten = melt(metaquast.contigs_molten,id.vars="sample")
+ggplotly(ggplot(metaquast.contigs_molten, aes(x=sample, y=value, fill=sample)) + scale_fill_brewer(palette = sample_palette) + 
+  geom_bar(stat = "identity",position = "dodge")+ facet_wrap(~variable,scales = "free_y") + xlab("Sample") + ylab("Number of contigs")+theme(legend.position = "none")+theme(axis.text.x = element_text(angle = 33)))
+```
+
+> The number of contigs above a certain size.
+
+
+Row
+-----------------------------------------------------------------------
+
+### Nx
+
+```{r}
+setorder(cov.details,sample,-Length)
+cov.details[,cumLength := cumsum(Length),by=sample]
+cov.details[,Nx := cumLength/sum(Length)*100,by=sample]
+nxdat = cov.details[,approx(Nx,Length,seq(0,100,0.05)),by=sample][!is.na(y)]
+ggplotly(ggplot(nxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_reverse() + xlab("Nx") +ylab("Length of the contig in bp")+labs(color="Sample"))
+
+```
+
+> The Nx plot
+
+### Lx
+
+```{r}
+cov.details[,Lx := 1:.N,by=sample]
+lxdat = cov.details[,approx(Nx,Lx,seq(0,100,0.05)),by=sample][!is.na(y)]
+ggplotly(ggplot(lxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_reverse() + xlab("Lx") + ylab("Number of contigs")+labs(color="Sample")+scale_color_brewer(palette = sample_palette))
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Coverage
+```{r}
+cov.summary.vis=cov.summary[,.(Sample=sample,Reads=reads,`Mapped reads`=mappedreads,`Mapped bases`=mappedbases,`Number of contigs`=refscaff,`Total Length`=refbases,`Mapped reads (%)`=round(percmapped,1),`Properly paired Reads`=round(percproperpairs,1),`Average coverage`=avcov,`Std. Dev. Coverage`=stddev,`Contigs with any coverage(%)`=round(scaffwithanycov,1),`Bases covered(%)`=round(refbasescov,1))]
+DT::datatable(cov.summary.vis)
+```
+
+> The coverage summary, calculated by pileup.sh
+
+Row
+-----------------------------------------------------------------------
+
+### Coverage Distribution
+
+```{r}
+covstats = rbind(data.table(type="PileUp",avcov=cov.details[["Avg_fold"]],sample=cov.details$sample),data.table(type="JGI",avcov=jgi_cov.details$totalAvgDepth,sample=jgi_cov.details$sample))
+covstats=covstats[,calculateBoxplotstats(avcov),by=c("sample","type")]
+ggplot(covstats) + aes(fill=sample,lower=lower,upper=upper,middle=middle,ymin=ymin,ymax=ymax,x=sample,group=interaction(sample,type)) + geom_boxplot(stat="identity") + facet_grid(cols=vars(type))+theme(legend.position = "none")+xlab("Sample")+ylab("Coverage")
+```
+
+> The distribution of the contig coverage, the whiskers extend from the hinges 1.5 times the IQR, but at most to the min/max values. 

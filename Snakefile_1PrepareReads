@@ -1,0 +1,225 @@
+##
+## Snakefile_1PrepareReads - Rules for read trimming and merging
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# It contains the FASTQC call, adapter trimming, merging, read quality
+# trimming for classification/annotation
+
+import os
+
+# Input function to get both paired reads
+paired_reads_input = lambda w: paired_reads[w["sample"]]
+# Input function for a single reads file
+single_reads_input = lambda w: paired_reads_input(w)[w["read"]]
+
+
+
+# The output directory for this step
+basedir_prep = config["output_dir"]+"/ReadPrep"
+
+fastq_file_regex = "(.+)\\.(:?fastq|fq)(?:\\.gz)?"
+
+# Templates
+rawqc = basedir_prep + "/Reads_QC/"
+trimming_templ = basedir_prep + "/Adapter_Trimming/{sample}/{sample}_"
+merge_res_file = basedir_prep+"/Merging_{trimmed}/{sample}/{sample}_{trimmed}_"
+classtempl = basedir_prep+"/ClassificationReads/{sample}/{sample}_{trimmed}_classreads_"
+
+
+adpt_poss = ["tr","untr"]
+smpld_poss = ["smpld","unsmpld"]
+
+# Predicts the filename given by FASTQC
+# Uses the {sample} wildcard
+# Outputs a list, first html and then zip file
+def predict_raw_fastqc_name(wildcards):
+   # No directory
+   base = os.path.basename(single_reads_input(wildcards))
+   # The base filename without the fastq/fq(.gz)
+   base = re.search(fastq_file_regex,base, re.IGNORECASE)
+   base = base.group(1)
+   template = rawqc + "{sample}/{base}_fastqc.{suffix}"
+   return expand(template,sample=wildcards["sample"], base=base, suffix=["html","zip"])
+
+# FASTQC report for a single raw read file
+rule fastqc_raw_file:
+   input:
+      single_reads_input
+   params:
+      out_dir = rawqc + "{sample}",
+      expected_filename = predict_raw_fastqc_name
+   output:
+      expand(rawqc + "{sample}/{sample}_{read}.{suffix}", suffix=["html","zip"], allow_missing=True)
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads:
+      2
+   resources:
+      mem_mb = lambda wildcards, threads: threads * 250
+   shell:
+      ("fastqc -q -o {params.out_dir} -t {threads} {input} && "
+       "mv {params.expected_filename[0]} {output[0]} && "
+       "mv {params.expected_filename[1]} {output[1]}")
+
+# FASTQC Reports for any produced .fastq.gz file
+rule fastqc_any_file:
+   input:
+      "{file}.fastq.gz"
+   params:
+      out_dir = lambda w:os.path.dirname(w.file),
+   output:
+      expand("{{file}}_fastqc.{suffix}",suffix=["html","zip"],allow_missing=True)
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads:
+      2
+   resources:
+      mem_mb = lambda wildcards, threads: threads * 250
+   shell:
+      "fastqc -q -o {params.out_dir} -t {threads} {input}"
+
+# A helper function to return the FASTQC html report location
+# Handles the different rules for user provided and
+# produced fastq.gz files.
+def fastQC_for_file(file):
+   # Test if the file matches the user read pattern
+   glob_res = glob_wildcards(paired_readfile_pattern,files=[file])
+   if glob_res.sample:
+      res = expand(rules.fastqc_raw_file.output[0],
+                   sample=glob_res.sample,read=glob_res.read)
+   else:
+      res = re.search(fastq_file_regex,file).group(1)+"_fastqc.html"
+   return res
+
+# Run adapter trimming on the paired reads
+rule cutadapt_paired_reads:
+   input:
+      unpack(lambda wildcards:paired_reads[wildcards["sample"]])
+   params:
+      adapter = lambda w: config["adapter_conf"].get(w["sample"],config["def_adapter_conf"]),
+      minlength = config["minlength_after_adaptertrim"],
+      adapter_minoverlap = config["minimum_adapter_overlap"],
+      adapter_error_rate = config["adapter_error_rate"],
+      fixR1 = config["fixcut_R1"],
+      fixR2 = config["fixcut_R2"],
+   output: 
+      still_paired_R1 = trimming_templ + "R1_adptr_tr.fastq.gz",
+      still_paired_R2 = trimming_templ + "R2_adptr_tr.fastq.gz",
+   log:
+      trimming_templ + "adptr_tr.log"
+   threads: 2
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("cutadapt -u {params.fixR1} -U {params.fixR2} -j {threads} -O {params.adapter_minoverlap} "
+       "--minimum-length {params.minlength} -e {params.adapter_error_rate} {params.adapter} --report=minimal "
+       "-o {output.still_paired_R1} -p {output.still_paired_R2} {input.R1} {input.R2} &> {log}")
+
+# Returns the strictness default, if the config doesn't say otherwise
+def strictness_helper(wildcards): 
+    return "" if config["merging_strictness"] == "default" else config["merging_strictness"]+"=T" 
+
+# Returns either the trimmed or untrimmed R1/R2 pair depending on 
+# the wildcard value trimmed
+def trimmed_or_untrimmed_pair(w):
+   if w["trimmed"]==adpt_poss[0]:
+      res = {"R1":rules.cutadapt_paired_reads.output.still_paired_R1,
+             "R2":rules.cutadapt_paired_reads.output.still_paired_R2}
+   else:
+      res = paired_reads[w["sample"]]
+   return res
+# Merge paired raw reads and also paired trimmed reads
+rule merge_paired_reads:
+   input:
+      unpack(trimmed_or_untrimmed_pair)
+   output:
+      mergedreads = merge_res_file+"merged.fastq.gz",
+      unmergedreads_R1 = merge_res_file+"unmgd_R1.fastq.gz",
+      unmergedreads_R2 = merge_res_file+"unmgd_R2.fastq.gz",
+      inserts = merge_res_file+"insert_sizes.tsv",
+      adapters = merge_res_file+"adapters.fa",
+   log:
+      merge_res_file+"merge.txt"
+   params:
+      strictness = strictness_helper,
+      trimq = config["qaulity_trimvals"]
+   threads: 2
+   resources:
+      mem_mb = 1000
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("bbmerge.sh -eoom -Xmx{resources.mem_mb}m t={threads} usejni=T "
+       "in1={input.R1} in2={input.R2} out={output.mergedreads} "
+       "outu={output.unmergedreads_R1} outu2={output.unmergedreads_R2} "
+       "outinsert={output.inserts} qtrim2=t trimq={params.trimq} "
+       "outa={output.adapters} &> {log}")
+
+# Perform quality trimming on merge results
+rule qualtrim_merge_reads:
+   input:
+      merge_res_file+"{mergeres}.fastq.gz"
+   params:
+      quality = config["classification_qual"],
+      minlength = config["classification_minlen"]
+   output:
+      merge_res_file+"{mergeres}_qtr.fastq.gz"
+   log:
+      mask=merge_res_file+"{mergeres}_mask.log", 
+      cut=merge_res_file+"{mergeres}_qtr.log"
+   wildcard_constraints:
+      mergeres="merged|unmgd_R1"
+   threads: 2
+   resources:
+      mem_mb = 16000
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("bbmask.sh -Xmx{resources.mem_mb}m in={input} out=stdout.fq entropy={config[low_complex_entropy]} "
+       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {params.quality} --report=minimal "
+       "-m {params.minlength} -o {output} - &> {log.cut}")
+
+# Combine the merged and unmerged R1 reads into one file
+# R2 is excluded, as it often has the same annotation as R1
+# More sophisticated processing would allow R2 inclusion
+rule classification_fastq:
+   input:
+      expand(rules.qualtrim_merge_reads.output,
+             sample="{sample}",trimmed="{trimmed}",
+             mergeres=["merged","unmgd_R1"])
+   output:
+      classtempl+"unsmpld.fastq.gz"
+   params:
+      classtempl+"unsmpld.fastq"
+   log:
+      classtempl+"unsmpld_concat.log"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("{{ reformat.sh in={input[0]} out=stdout.fastq > {params} && "
+       "reformat.sh in={input[1]} out=stdout.fastq >> {params} && "
+       "bgzip {params} ;  }} &> {log}")
+
+# Sample from the combined file
+# When using R1 and R2 in the future, they should be drawn together
+rule sampled_classification_fastq:
+   input:
+      rules.classification_fastq.output
+   params:
+      seqs = config["read_sampling"]
+   output:
+      classtempl+"smpld.fastq.gz"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "seqtk sample -s42 {input} {params.seqs} | bgzip > {output}"
+
+
+
+# Get sampled/all trimmed/untrimmed classification reads
+# Depends on the config
+def classfication_fastq():
+   smpld = smpld_poss[0] if config["read_sampling"]>0 else smpld_poss[1]
+   trim_adapters = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
+   return expand(classtempl+"{smpld}.fastq.gz", trimmed=trim_adapters, smpld=smpld, allow_missing=True)

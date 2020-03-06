@@ -1,0 +1,156 @@
+---
+title: "SSU rRNA Read Classification"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+
+```{r, include=FALSE}
+if(exists("snakemake")){
+  alignedresults.file <- snakemake@input[["classSSUdata"]]
+  taxfield = snakemake@params[["silvatax"]]
+  readanno_sampled_overview.file = snakemake@input[["readanno_sampled_overview"]]
+  commonscript.file = snakemake@input[["commons"]]
+  threads=snakemake@threads
+}
+files = c(alignedresults.file,readanno_sampled_overview.file)
+source(commonscript.file)
+commonOptions(threads)
+
+readanno_sampled_overview = fread(readanno_sampled_overview.file)
+
+alignedresults <- fread(alignedresults.file)
+alignedresults[,Classified:=ifelse(get(taxfield)!="Unclassified;","Classified","Unclassified")]
+alignedresults[,identity:=(qwidth-tag.NM)/qwidth*100]
+
+
+tax=tstrsplit(alignedresults[,get(taxfield)],split=";",names = T,fill="Unclassified")
+alignedresults[,(names(tax)):=tax]
+rm(tax)
+taxcols=c("superkingdom","phylum","class","order","family","genus","species")
+setnames(alignedresults,c("V1","V2","V3","V4","V5","V6","V7"),taxcols,skip_absent = T)
+missingcols <- setdiff(taxcols,colnames(alignedresults))
+if(length(missingcols)!=0)
+  alignedresults[,(missingcols):="Unclassified"]
+alignedresults[,taxdepthlist:=apply(.SD,1,function(row)which(row=="Unclassified")),.SD=taxcols]
+alignedresults[sapply(taxdepthlist,length)>0,taxdepthi:=sapply(taxdepthlist,"[[",1)-1]
+alignedresults[taxdepthi==0,taxdepth:="None Classified"]
+alignedresults[taxdepthi!=0,taxdepth:=sapply(taxdepthi,function(i)taxcols[i])]
+alignedresults[sapply(taxdepthlist,length)==0,taxdepth:=last(taxcols)]
+
+
+taxdata  = alignedresults[,.N,by=c("sample",taxcols)]
+```
+
+Overview
+=================
+
+Row
+--------------------------------------
+
+### Application Note
+
+The reads which have been quality trimmed for classification, are passed to BBmap, which uses the SILVA SSU(16S/18S) non redundant reference datbase to extract 16s rRNA reads. To improve classification accuracy over sensitivity, the command line version of the SILVA Incremental Aligner (SINA) is used for taxonomic assignment. SINA uses the existing SILVA mutliple sequence alignment to find references for the given read and assign taxonomic classification based on a lowest common ancestor between hits that matched the criteria. 
+
+If the classification file wasn't sampled, the different sequencing depths will make sample comparisons meaningless. Check the read analysis preparation report.
+
+The exact parameters can be found in the configuration file. For better taxonomic exploration, a Krona plot is available.
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(files))
+```
+> The table shows the files which have been used to generate this report.
+
+
+Row
+-----------------------------------------------------------------------
+
+### Query Width to BBmap Alignment Quality
+
+```{r}
+ggplotly(ggplot(alignedresults) + aes(x=qwidth,y=mapq) + geom_bin2d() + scale_fill_continuous(type = "viridis") + xlab("Query Width") + ylab("Quality (mapq)") + facet_grid(Classified~sample)+ labs(fill="Count"))
+```
+
+> The query width and mapping quality as reported by BBMap.
+
+Row
+-----------------------------------------------------------------------
+
+### Query Width to identity with reference
+
+```{r}
+ggplotly(ggplot(alignedresults) + aes(x=qwidth,y=identity) + geom_bin2d() + scale_fill_continuous(type = "viridis") + scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Query Width") + ylab("Identtiy") + facet_grid(Classified~sample)+ labs(fill="Count"))
+```
+
+> The identtiy is calculated from the SAM NM tag (edit distance) and the query width.
+
+Row
+---------------------------------------
+
+### SINA alignment quality distribution
+
+```{r}
+ggplotly(ggplot(alignedresults) + aes(x=align_quality_slv,fill=sample) + geom_histogram(bins=100) + scale_fill_brewer(palette  = sample_palette)+facet_grid(Classified~sample) + xlab("SINA Alignment Quality") + ylab("Count") + labs(fill="Sample"))
+```
+
+> The disitrbution (estimated density) of the SINA alignment scores.
+
+
+### Hit counts
+
+```{r}
+hitcounts = alignedresults[,.N,by=c("sample")]
+hitcounts = merge(hitcounts,readanno_sampled_overview,by="sample")
+hitcounts[,rel:=N/reads*100]
+ggplotly(ggplot(hitcounts) + aes(x=sample,y=rel,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Sample") + ylab("SSU rRNA reads")+theme(legend.position = "none"))
+```
+
+> The relative number of hits BBMap found in each sample.
+
+Row
+---------------------------------------
+
+
+### Classification depth
+
+```{r}
+depth=alignedresults[,.N,by=c("sample","taxdepth")]
+depth[,rel:=N/sum(N)*100,by="sample"]
+depth[,taxdepth:=factor(taxdepth,levels =rev(c("None Classified",taxcols)))]
+ggplotly(ggplot(depth)+aes(x=sample,y=taxdepth,fill=rel) + geom_raster()+scale_fill_continuous(type = "viridis") + labs(fill="% of SSU\n Reads")+xlab("Sample")+ylab("Deepest Level"))
+```
+
+> The relative percentage of the deppest classification level for the reads in each sample.
+
+### Subject diversity
+
+```{r}
+hits = alignedresults[,.N,by=c("sample","rid")]
+hits = hits[,rel:=N/sum(N)*100,by=sample]
+ggplot(hits) + aes(y=rel,x=sample,fill=sample) + geom_boxplot() + scale_fill_brewer(palette = sample_palette) +xlab("Sample") + ylab("Percentage of total rRNA reads") +scale_y_continuous(labels = function(x) paste0(x, "%"))+ theme(legend.position = "bottom") + labs(fill="Sample")
+```
+
+
+>The number of hits on a reference (BBmap) in each sample. The whiskers extend at most 1.5 times the IQR from the hinge or to the furthest point. 
+
+Taxonomy
+=================
+
+Row
+---------------------------------------
+
+
+```{r, results="asis"}
+drawSampleTaxplots(taxdata)
+```
+

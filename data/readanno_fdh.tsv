@@ -1,0 +1,7 @@
+group	query
+Formate dehydrogenase	ec:"1.17.1.9"
+Formate dehydrogenase (NADP(+))	ec:"1.17.1.10"
+Formate dehydrogenase (NAD(+), ferredoxin)	ec:"1.17.1.11"
+Formate dehydrogenase-N	ec:"1.17.5.3" 
+Formate dehydrogenase (coenzyme F420)	ec:"1.17.98.3" OR database:(type:ko k22516) OR database:(type:ko k22516) OR database:(type:ko k00125)
+Formate dehydrogenase (acceptor)	ec:"1.17.99.7"

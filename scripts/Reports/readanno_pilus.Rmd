@@ -1,0 +1,119 @@
+---
+title: "Pili Read Annotation"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+```{r, include=FALSE,message=FALSE}
+if(exists("snakemake")){
+  database.file <- snakemake@input[["db"]]
+  hits.file = snakemake@input[["hits"]]
+  commonscript.file = snakemake@input[["commons"]]
+  readanno_sampled_overview.file = snakemake@input[["readanno_sampled_overview"]]
+  threads=snakemake@threads
+}else{
+  database.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/databases/readanno/prot/pilus.tsv"
+  hits.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/read_annotation/pilus/pilus_combineddata.tsv"
+  readanno_sampled_overview.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/sequence_data/readanno_sampled/readanno_sampled_overview.tsv"
+  commonscript.file = "commonReport.R"
+  threads=NA
+}
+taxcols=c("superkingdom","phylum","class","order","family","genus","species")
+files = c(hits.file,database.file)
+source(commonscript.file)
+commonOptions(threads)
+
+
+readanno_sampled_overview = fread(readanno_sampled_overview.file)
+hits <- fread(hits.file)
+database <- fread(database.file)
+hits = rbind(hits,cbind(sample="Database",database),fill=T)
+hits[,sample:=factor(sample,levels = c(setdiff(unique(sample),"Database"),"Database"),ordered = T)]
+hits[,seqlen:=nchar(Sequence)]
+taxdat=hits[,.N,by=c("sample",taxcols)]
+
+aromatics = c("F","W","Y","H")
+for(letter in aromatics){
+  hits[,(paste0(letter,"_freq")):=str_count(Sequence,fixed(letter))/seqlen]
+}
+hits[,arom_freq:=rowSums(.SD),.SD=paste0(aromatics,"_freq")]
+arompattern = paste0(c(aromatics,paste0("[^",paste0(aromatics,collapse=""),"]$")),collapse ="|")
+hits[,arompos:=lapply(str_locate_all(Sequence,arompattern),function(hits)c(1,hits[,1]))]
+hits[,maxAromDist:=sapply(arompos,max)]
+hits[,avAromDist:=sapply(arompos,mean)]
+
+
+```
+
+Overview
+=================
+
+Row
+--------------------------------------
+
+### Application Note
+
+äöä
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(files))
+```
+> The table shows the files which have been used to generate this report.
+
+Row
+---------------------------------------
+
+### Aromatic aminoacid frequency
+
+```{r}
+ggplotly(ggplot(hits) + aes(x=arom_freq,color=sample) + scale_color_brewer(palette = sample_palette) + geom_freqpoly(binwidth=0.005) + xlab("Aromatic aminoacid frequency")+ylab("Count")+labs(color=sample_palette))
+```
+
+> dfddf
+
+### Max distance between two aromatic aminoacids
+
+```{r}
+ggplotly(ggplot(hits) + aes(x=maxAromDist,color=sample) + scale_color_brewer(palette = sample_palette)+ geom_freqpoly(binwidth=1)  + xlab("Max distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
+```
+
+Row
+---------------------------------------
+
+
+### Average distance between two aromatic aminoacids
+
+```{r}
+ggplotly(ggplot(hits) + aes(x=avAromDist,color=sample) + scale_color_brewer(palette = sample_palette)+ geom_freqpoly(binwidth=1)  + xlab("Average distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
+```
+
+BLAST Results
+===========================
+
+Row
+---------------------------------------
+
+```{r,results="asis",fig.width=16}
+drawBlastPlots(hits[sample!="Database",],readanno_sampled_overview)
+```
+
+
+Taxonomy
+===========================
+
+Row
+---------------------------------------
+
+```{r,results="asis"}
+drawSampleTaxplots(taxdat[sample!="Database",])
+```

@@ -1,0 +1,218 @@
+##
+## Snakefile_4Assemble - Rules for assembly
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# This Snakefile produces the assembly from the reads and produces data
+# from this assembly like coverage and classification.
+
+# Assembly results
+basedir_assembly = config["output_dir"]+"/Assembly"
+
+
+# Get the files for the assembly
+# Either the trimmed or untrimmed merged and unmerged reads
+def reads_for_assembly(w):
+   trim_adapters = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
+   R1 = expand(rules.merge_paired_reads.output.unmergedreads_R1,
+               sample="{sample}",trimmed=trim_adapters)
+   R2 = expand(rules.merge_paired_reads.output.unmergedreads_R2,
+               sample="{sample}",trimmed=trim_adapters)
+   merged = expand(rules.merge_paired_reads.output.mergedreads,
+               sample="{sample}",trimmed=trim_adapters)
+   return dict(zip(["R1","R2","merged"],[R1,R2,merged]))
+
+# Run the assembly for one sample
+rule megahit_assembly:
+   input:
+      unpack(reads_for_assembly)
+   params:
+      outdir = basedir_assembly+"/megahit/{sample}",
+   output:
+      contigs = basedir_assembly+"/megahit/{sample}/final.contigs.fa",
+      intermediates = directory(basedir_assembly+
+                                "/megahit/{sample}/intermediate_contigs")
+   log:
+      basedir_assembly+"/megahit/{sample}_megahit.log",
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   resources:
+      mem_mb = 300*1000
+   shell: 
+        ("rm -fr {params.outdir} && megahit -1 {input.R1} -2 {input.R2} "
+         "-r {input.merged} -o {params.outdir} "
+         "-m $(expr {resources.mem_mb} \\* 1000000) "
+         "-t {threads} --min-contig-len {config[min_contiglen]} "
+         "{config[megahit_options]} &> {log}")
+
+# Generate fastg for an assembly step
+rule megahit_fastg:
+   input:
+      rules.megahit_assembly.output.intermediates
+   params:
+      file=rules.megahit_assembly.output.intermediates+"/k{kmer}.contigs.fa"
+   output:
+      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.fastg"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("megahit_toolkit contig2fastg {wildcards.kmer} {params.file} > {output}")
+
+# Generate Bandage info file
+rule bandage_info:
+   input:
+      rules.megahit_fastg.output
+   output:
+      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.tsv"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "Bandage info {input} --tsv > {output}"
+
+# Generate Bandage image
+rule bandage_image:
+   input:
+      rules.megahit_fastg.output
+   output:
+      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.png"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "Bandage image {input} {output} --height 7680"
+
+
+def trimmed_or_untrimmed_pair_map(w):
+   if config["adaptertrim"]:
+      res = {"R1":rules.cutadapt_paired_reads.output.still_paired_R1,
+             "R2":rules.cutadapt_paired_reads.output.still_paired_R2}
+   else:
+      res = paired_reads[w["sample"]]
+   res["ref"] = rules.megahit_assembly.output.contigs
+   return res
+
+
+# Map reads to the assembly
+rule map_reads:
+   input:
+      unpack(trimmed_or_untrimmed_pair_map)
+   output:
+      sam=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.sam",
+      bam=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.bam",
+      bai=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.bam.bai",
+   log:
+      basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.log"
+   params:
+      # Same as in the metabat2 paper script
+      # https://bitbucket.org/berkeleylab/metabat/src/master/MetaBAT2PaperSupplementaryScripts/runBBmap.sh
+      # The rcs (requirecorrectstrand) is discussable
+      ("local=t kbp=f minhits=2 minratio=0.8 maxindel=50 rcs=f usemodulo=t mdtag=t ")
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shadow:
+      "minimal"
+   threads: 15
+   resources:
+      mem_mb = 16*1000
+   shell:
+      ("{{ bbwrap.sh -Xmx{resources.mem_mb}M ref={input.ref} in={input.R1} "
+       "in2={input.R2} out={output.sam} t={threads} {params} "
+       "trd=t mdtag=true nodisk samversion=1.4 && "
+       "samtools sort {output.sam} > {output.bam} && "
+       "samtools index {output.bam} ; }} &> {log}")
+
+# Calculate assembly coverage and extract unmapped single end and paired end reads
+rule cal_map_cov:
+   input:
+      sam = rules.map_reads.output.sam
+   output:
+      cov = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_cov.tsv",
+      cov_sum = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_cov.log",
+      unmappedsp = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_merged.fastq.gz",
+      unmappedR1 = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_R1.fastq.gz",
+      unmappedR2 = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_R2.fastq.gz"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("pileup.sh in={input.sam} out={output.cov} &> {output.cov_sum} && "
+       "samtools view -u -f4 {input.sam} | samtools bam2fq -s {output.unmappedsp} - | "
+       "reformat.sh in=stdin.fq int=t out1={output.unmappedR1} out2={output.unmappedR2}")
+
+# Run metaquast
+rule metaquast_sample:
+   input:
+      contigs=rules.megahit_assembly.output.contigs,
+      sam=rules.map_reads.output.sam,
+   params:
+      basedir = basedir_assembly+"/metaquast/{sample}/{sample}_metaquast",
+   output:
+      report=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/report.html",
+      tsv=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/transposed_report.tsv",
+   log:
+      basedir_assembly+"/metaquast/{sample}_metaquast.log"
+   threads: 15
+   resources:
+      entrez=1
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      ("metaquast.py -o {params.basedir} -m {config[min_contiglen]} "
+      "--circos -f {input.contigs} --rna-finding -b -t {threads} "
+      "--max-ref-number {config[quast_noofrefs]} --sam {input.sam} &> {log}")
+
+# Prepare CAT/BAT database files
+rule index_cat_bat:
+   input:
+      rules.download_ncbi_tax.output,
+      rules.download_ncbi_prot_acc_taxmap.output.ori
+   params:
+      taxdir = rules.download_ncbi_tax.params.dir
+   output:
+      directory(basedir_dbs+"/CATBAT")
+   log:
+      basedir_dbs+"/CATBAT.log"
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   shell:
+      ("CAT prepare --existing -n {threads} -d {output} "
+       "-t {params.taxdir} --no_log &> {log} && rm {output}/*.nr.gz")
+
+# Classify the contigs
+rule classify_contigs:
+   input:
+      rules.index_cat_bat.input,
+      contigs = rules.megahit_assembly.output.contigs,
+      db = rules.index_cat_bat.output,
+   params:
+      taxdir = rules.download_ncbi_tax.params.dir,
+      prefix = basedir_assembly+"/contig_classification/{sample}/{sample}"
+   output:
+      expand(basedir_assembly+"/contig_classification/{{sample}}/{{sample}}.{file}",
+             file=["ORF2LCA.txt","contig2classification.txt","predicted_proteins.faa",
+                   "alignment.diamond","predicted_proteins.gff"])
+   log:
+      basedir_assembly+"/contig_classification/{sample}/{sample}_CAT.log"
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 8
+   shell:
+      ("CAT contigs -c {input.contigs} -d {input.db} -t {params.taxdir} "
+       "-o {params.prefix} --no_log -n {threads} --force &> {log}")
+
+# Add names to a CAT/BAT file
+rule add_names_catbat:
+   input:
+      rules.index_cat_bat.input,
+      data = "{base}.{type}.txt"
+   params:
+      taxdir = rules.download_ncbi_tax.params.dir
+   output:
+      "{base}.{type}.named.txt"
+   wildcard_constraints:
+      type="ORF2LCA|contig2classification|bin2classification"
+   conda: 
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "CAT add_names -i {input.data} -o {output} -t {params.taxdir} --only_official"
+   

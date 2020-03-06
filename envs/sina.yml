@@ -1,0 +1,7 @@
+name: sina
+channels:
+  - conda-forge
+  - bioconda
+  - genomedk
+dependencies:
+  - sina=1.6.0

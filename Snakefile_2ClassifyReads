@@ -1,0 +1,164 @@
+##
+## Snakefile_2PrepareReads - Rules for read classification
+##
+## Knutt.org/Knutt2Reads2Bins
+
+# This file contains the read classification 
+# based on SSU reads and all reads.
+
+# Classification results
+basedir_readclass = config["output_dir"]+"/ReadClassification"
+
+silva_fasta_url = "https://www.arb-silva.de/fileadmin/silva_databases/release_{config[silva_version]}/Exports/SILVA_{config[silva_version]}_SSURef_Nr99_tax_silva.fasta.gz"
+
+# Download the SSU fasta from Silva
+rule downlaod_ssu_fasta:
+   output:
+      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_Nr99_tax_silva.fasta"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "wget -qO- "+silva_fasta_url+" | gunzip > {output}"
+
+# Build BBmap SSU index
+rule bbmap_index:
+   input:
+      rules.downlaod_ssu_fasta.output
+   output:
+      directory(basedir_dbs+"/SILVABBMap_"+config["silva_version"]+"/ref")
+   params:
+      basename=basedir_dbs+"/SILVABBMap_"+config["silva_version"]
+   log:
+      basedir_dbs+"/SILVABBMap_"+config["silva_version"]+"/index.log"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   shell:
+      "bbmap.sh ref={input} path={params.basename} t={threads} &> {log}"
+
+
+# Filter reads SSU with BBmap using the Silva database.
+rule filter_ssu_reads:
+   input:
+      ref=rules.bbmap_index.input,
+      db=rules.bbmap_index.output,
+      reads=classfication_fastq()
+   output:
+      bam=basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.bam",
+      fasta=basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.fasta"
+   params:
+      dbbase=rules.bbmap_index.params.basename,
+   log:
+      basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.out",
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   resources:
+      mem_mb = 16*1000
+   shell:
+      ("{{ bbwrap.sh -Xmx{resources.mem_mb}M  minid={config[ssu_min_id]} "
+       "in={input.reads} ref={input.ref} path={params.dbbase} t={threads} "
+       "usejni=t mdtag=t nmtag=t xmtag=t outm={output.bam} && "
+       "samtools fasta {output.bam} > {output.fasta} ; }} &> {log}")
+
+# Download the SSU arbfile from Silva
+rule downlaod_ssu_arb:
+   output:
+      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.arb"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "wget -qO- https://www.arb-silva.de/fileadmin/silva_databases/{config[silva_arb]} | gunzip > {output}"
+
+# Build reference files for SINA
+rule sina_index:
+   input:
+      db=rules.downlaod_ssu_arb.output
+   output:
+      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.sidx"
+   log:
+      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.log"
+   conda:
+      "envs/sina.yml"
+   threads:
+      30
+   shell:
+      "echo \">BuildingDB\nAAAAAAAAAAAAAAAAAA\n\" |sina -r {input.db} -p {threads} --fs-engine internal &> {log}"
+
+# Classify the filtered reads with SINA
+rule classify_ssu:
+   input:
+      rules.sina_index.output,
+      db=rules.downlaod_ssu_arb.output,
+      toalign=rules.filter_ssu_reads.output.fasta
+   output:
+      fasta=basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.fasta",
+      csv=basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.csv"
+   log:
+      basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.log"
+   conda:
+      "envs/sina.yml"
+   threads: 30
+   shell:
+      ("sina -i {input.toalign} -o {output.fasta} -r {input.db} -S --meta-fmt csv "
+       "-v --fs-msc={config[sina_min_sim]} --search-min-sim={config[sina_min_sim]} "
+       "--search-max-result={config[sina_max_hits]} --lca-quorum={config[sina_lca_quorum]} "
+       "--lca-fields tax_slv,tax_embl,tax_gg,tax_rdp,tax_gg -p {threads} "
+       "-t --fs-engine internal &> {log}")
+
+# Build Kaiju index
+rule kaiju_index:
+   output:
+      basedir_dbs+"/kaiju/kaiju_db_{kaijudb}.fmi"
+   log:
+      basedir_dbs+"/kaiju/kaiju_db_{kaijudb}.log"
+   params:
+      basedir=basedir_dbs+"/kaiju/"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   shadow:
+      "minimal"
+   shell:
+      ("{{ cd '{params.basedir}' && kaiju-makedb -t {threads} -s {wildcards.kaijudb} &&"
+       " mv {wildcards.kaijudb}/kaiju_db_{wildcards.kaijudb}.fmi . ; }} &> {log}")
+
+# Download NCBI Taxonomy
+rule download_ncbi_tax:
+   params:
+      dir=basedir_dbs+"/ncbitax/"
+   output:
+      names=basedir_dbs+"/ncbitax/names.dmp",
+      nodes=basedir_dbs+"/ncbitax/nodes.dmp"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   shell:
+      "wget -qO- ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz | tar -C {params.dir} -xzf -"
+
+# Classify all reads using kaiju
+rule kaiju_sample:
+   input:
+      reads=classfication_fastq(),
+      db=expand(rules.kaiju_index.output,kaijudb=config["kaiju_db"]),
+      nodes=rules.download_ncbi_tax.output.nodes,
+      names=rules.download_ncbi_tax.output.names
+   output:
+      base=basedir_readclass+"/kaiju/{sample}/{sample}_kaiju.tsv",
+      out=basedir_readclass+"/kaiju/{sample}/{sample}_kaiju_tax.tsv"
+   log:
+      basedir_readclass+"/kaiju/{sample}/{sample}_kaiju.log"
+   params:
+      args = {"greedy":"-a greedy -e "+str(config["kaiju_greedy_mismatches"])+" -s "+str(config["kaiju_greedy_score"]),
+              "mem":"-a mem"}[config["kaiju_mode"]],  
+      match_length = config["kaiju_matchlen"],
+      greedy_eval = "-E "+str(config["kaiju_greedy_eval"]) if config["kaiju_mode"]=="greedy" and config["kaiju_greedy_eval"] >=0 else "", 
+      lowcomplexfilter = "-x" if config["kaiju_lowcomplex_filter"] else "-X" 
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads: 30
+   shell:
+      ("{{ kaiju -t {input.nodes} -f {input.db} -i {input.reads} -v -z {threads} "
+       "{params.args} -m {params.match_length} {params.greedy_eval} "
+       "{params.lowcomplexfilter} -o {output.base} && kaiju-addTaxonNames "
+       "-i {output.base} -o {output.out} -t {input.nodes} -n {input.names} "
+       "-v -r superkingdom,phylum,class,order,family,genus,species ; }} &> {log}")

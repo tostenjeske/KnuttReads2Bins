@@ -1,0 +1,133 @@
+---
+title: "FDH Read Annotation"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+```{r, include=FALSE,message=FALSE}
+if(exists("snakemake")){
+  database.file <- snakemake@input[["db"]]
+  hits.file = snakemake@input[["hits"]]
+  commonscript.file = snakemake@input[["commons"]]
+  readanno_sampled_overview.file = snakemake@input[["readanno_sampled_overview"]]
+  threads=snakemake@threads
+}else{
+  database.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/databases/readanno/prot/fdh.tsv"
+  hits.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/read_annotation/fdh/fdh_combineddata.tsv"
+  readanno_sampled_overview.file = "/run/user/2496/gvfs/sftp:host=highmem1/data1/2019_LJ_data/bachelor_thesis/metadiet/output/Analysis/sequence_data/readanno_sampled/readanno_sampled_overview.tsv"
+  commonscript.file = "commonReport.R"
+  threads=NA
+}
+taxcols=c("superkingdom","phylum","class","order","family","genus","species")
+files = c(hits.file,database.file)
+source(commonscript.file)
+commonOptions(threads)
+suppressPackageStartupMessages(library(KEGGREST))
+
+
+readanno_sampled_overview = fread(readanno_sampled_overview.file)
+hits <- fread(hits.file)
+database <- fread(database.file)
+hits = rbind(hits,cbind(sample="Database",database),fill=T)
+#hits=cbind(sample="Database",database)
+
+fdhdat = hits[,c("sample",taxcols,"Cross-reference (KO)","EC number"),with=F]
+fdhdat[,KO:=strsplit(`Cross-reference (KO)`,fixed=T,split = ";")]
+fdhdat = as.data.table(unnestSingleColUnique(fdhdat,"KO"))
+fdhdat[,ECfromKO:=keggKOECConverter(KO)]
+fdhdat[is.na(ECfromKO),ECfromKO:=""]
+fdhdat = as.data.table(unite(fdhdat,"allECnumbers",ECfromKO,"EC number",sep=";"))
+fdhdat[,EC:=strsplit(`allECnumbers`,fixed=T,split = ";")]
+fdhdat[,EC:=lapply(EC,trimws)]
+fdhdat[,EC:=lapply(EC,unique)]
+fdhdat = as.data.table(unnestSingleColUnique(fdhdat,"EC"))[EC!="",]
+fdhdat[,EC:=cleanMovedECs(EC)]
+fdhdat[,ECNAME:=keggECNamelookup(EC)]
+fdhdat=fdhdat[,.N,by=c("sample",taxcols,"ECNAME")]
+```
+
+Overview
+=================
+
+Row
+--------------------------------------
+
+### Application Note
+
+At the time of writing, the annotation for the F420 FDH EC class (1.17.98.3) was missing in the UniProtKB database (1 entry in October 2019). Instead the KO terms for this function from the KEGG database were used to find sequences for that class, but the KO annotation in UniProt only is available for genomes, which are in the KEGG genome database. The contigs later in the workflow are annotated using the KOFamKOALA program from KEGG, which assigns KO Terms to all sequences and formate dehydrogenases can be extracted from those. With the KEGG REST API the KO terms were translated into EC numbers and appended to those from the UniProt database. The EC names were also extracted from the KEGG database, moved entries were renamed, but sometimes one class got divided into multiple subclasses, then renaming was not possible. For long names the EC number was kept as the name.
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(files))
+```
+> The table shows the files which have been used to generate this report.
+
+
+Row
+---------------------------------------
+### Enzyme count in each sample
+
+
+```{r}
+dat=fdhdat[,.N,by=c("sample","ECNAME")]
+dat[,rel:=N/sum(N)*100,by=c("sample")]
+dat=as.data.table(complete(dat,sample,ECNAME,fill=list(N=0,rel=0)))
+orderHeatMap(dat,"sample",field = "rel",grouping = "ECNAME")
+orderHeatMap(dat,"ECNAME",field = "rel",grouping = "sample")
+ggplotly(ggplot(dat)+aes(x=sample,y=ECNAME,fill=rel) +labs(fill="% of filtered\n Reads")+ geom_raster() + xlab("Sample") + ylab("Enzyme"))
+```
+
+
+Row
+---------------------------------------
+
+```{r,results='asis'}
+dat=fdhdat[,.N,by=c("sample","superkingdom","ECNAME")]
+save.image()
+dat[,rel:=N/sum(N)*100,by=c("sample")]
+dat=as.data.table(complete(dat,sample,superkingdom,ECNAME,fill=list(N=0,rel=0)))
+orderHeatMap(dat,"sample",field = "rel",grouping = "ECNAME")
+dat=split(dat,dat$superkingdom)
+dat=lapply(dat,function(dat)orderHeatMap(dat,"ECNAME",field = "rel",grouping = "sample"))
+plots=lapply(dat,function(dat)ggplot(dat)+aes_string(x="sample",y="ECNAME",fill="rel") +labs(fill="% of filtered\n Reads")+ geom_raster() + xlab("Sample") + ylab("Enzyme")+theme(axis.text.x = element_text(angle = 33)))  #+facet_grid(cols=vars(superkingdom))
+plots = plots[names(plots)!="Unclassified"]
+for (i in seq_along(plots)) {
+    plotname = names(plots)[[i]]
+    drawplotasis(paste0(plotname),"The 30 most common subgroups in every sample are shown in this plot, others have been aggregated into Other. The subclasses have been sorted by using Wards clustering with euclidian distance in every group and the samples on all subgroups combined.",ggplotly(plots[[i]]),576)
+#drawplotasis = function(title,subtitle,plot,height=NA,width=NA){
+    if(i!=length(plots))
+      drawrow()
+  }
+```
+
+
+
+BLAST Results
+===========================
+
+Row
+---------------------------------------
+
+```{r,results="asis",fig.width=16}
+drawBlastPlots(hits[sample!="Database",],readanno_sampled_overview)
+```
+
+
+Taxonomy
+===========================
+
+Row
+---------------------------------------
+
+```{r,results="asis"}
+drawSampleTaxplots(fdhdat[sample!="Database",.(N=sum(N)),by=c("sample",taxcols)])
+```
