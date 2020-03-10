@@ -138,13 +138,32 @@ rule cal_map_cov:
        "samtools view -u -f4 {input.sam} | samtools bam2fq -s {output.unmappedsp} - | "
        "reformat.sh in=stdin.fq int=t out1={output.unmappedR1} out2={output.unmappedR2}")
 
+# Construct SILVA database for metaquast:
+rule metaquast_silva:
+   input:
+      seqs = rules.downlaod_ssu_fasta.output,
+   params:
+      base = basedir_dbs + "/MetaQUAST/SILVA/silva"
+   output:
+      files = expand(basedir_dbs + "/MetaQUAST/SILVA/silva.{ext}", ext=["nhr","nin","nsq"])
+   log:
+      basedir_dbs + "/MetaQUAST.flag"
+   conda:
+      "envs/Knutt2Reads2Bins.yml"
+   threads:
+      30
+   shell:
+      "makeblastdb -in {input} -dbtype nucl -out {params.base} &> {log}"
+
 # Run metaquast
 rule metaquast_sample:
    input:
+      rules.metaquast_silva.output,
       contigs=rules.megahit_assembly.output.contigs,
       sam=rules.map_reads.output.sam,
    params:
       basedir = basedir_assembly+"/metaquast/{sample}/{sample}_metaquast",
+      silva = rules.metaquast_silva.params.base
    output:
       report=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/report.html",
       tsv=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/transposed_report.tsv",
@@ -157,7 +176,8 @@ rule metaquast_sample:
       "envs/Knutt2Reads2Bins.yml"
    shell:
       ("metaquast.py -o {params.basedir} -m {config[min_contiglen]} "
-      "--circos -f {input.contigs} --rna-finding -b -t {threads} "
+      "--circos -f {input.contigs} --rna-finding -t {threads} "
+      "--blast-db {params.silva} "
       "--max-ref-number {config[quast_noofrefs]} --sam {input.sam} &> {log}")
 
 # Prepare CAT/BAT database files
