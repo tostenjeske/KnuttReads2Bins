@@ -263,3 +263,17 @@ rule report:
       rules.assemblyreport.output,
       rules.binningreport.output,      
       
+##
+## Data
+##
+rule data:
+   input:
+      rules.filter_ssu_reads.input.db,
+      rules.classify_ssu.input.db,
+      rules.kaiju_sample.input.db,
+      expand(rules.diamond_run.input.db, blastdb=integrateddbs+customdbs),
+      rules.metaquast_silva.output,
+      rules.index_cat_bat.output,
+      rules.checkm_data.output,
+      rules.ncbi_translator.output,
+      
