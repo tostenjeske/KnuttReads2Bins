@@ -3,7 +3,7 @@
 ##
 ## commonReport.R - Utility functions used by the reports
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 
 # Load packages every Report requires and set thread counts
@@ -25,7 +25,7 @@ commonOptions  <- function(threads){
     options(mc.cores = threads)
     theme_set(theme_linedraw())
     sample_palette <<- "Set1"
-    readdirection_palette <<- "Set2"
+    read_palette <<- "Set2"
     additional_palette <<- "Set3"
     knitr::opts_chunk$set(fig.height=7) 
 }
@@ -77,8 +77,24 @@ formatasLink <- function(x)gsub("^(.+/(.+)$)",paste0("<a  target=_blank href='\\
 # Create a data.table from a list like this list(sample=list(R1=datatable,R2=datatable))
 # (binds the data.tables and adds a sample and readdirection column)
 deflateSampleReadData <- function(readlist,name){
-  res=rbindlist(unlist(lapply(names(readlist),unlist(function(sample)lapply(names(readlist[[sample]]),function(read)list(sample=sample,readdirection=read,readlist[[sample]][[read]])),recursive = F)),recursive = F))
+  res <- rbindlist(unlist(lapply(names(readlist),unlist(function(sample)lapply(names(readlist[[sample]]),function(read)list(sample=sample,readdirection=read,readlist[[sample]][[read]])),recursive = F)),recursive = F))
+  res
 }
+
+# Read data which is formatted as a list of file names and add a argument combination to each table 
+# colvals is a data.frame like list (list of named lists)
+readData <- function(filelist,colvals,readfun=fread){
+  data <- lapply(filelist,readfun)
+  for (i in seq_along(data)) {
+     for (colname in names(colvals)){
+       set(data[[i]], NULL ,colname,colvals[[colname]][[i]])
+     }
+  }
+  data <- rbindlist(data)
+  setcolorder(data, c(names(colvals)))
+  data
+}
+
 
 # Split a string every "every" characters and insert sep
 insertEvery <- function(strings,every=5,sep="\n")sapply(gsub(paste0("(.{",as.character(every),"})"), paste0("\\1",sep),strings),trimws)
@@ -202,6 +218,9 @@ unnestSingleColUnique<- function(dat,col){
 # Order the "values" column as a factor using the values in "field".
 # The "values" are also seperated by "grouping" (second axis in the heatmap)
 orderHeatMap <- function(dat,values="CazySubClasses",field="rel",grouping="sample"){
+  if(length(unique(unlist(dat[, c(values)])))==1){
+    return(invisible(dat))
+  }
   valmatrix = dat[,.(C__OL=sum(get(field))),by=c(grouping,values)]
   setnames(valmatrix,"C__OL",field)
   form=paste0(values,"~",grouping)
@@ -212,6 +231,7 @@ orderHeatMap <- function(dat,values="CazySubClasses",field="rel",grouping="sampl
   clustering=as.dendrogram(hclust(distmat,method = "ward.D2"))
   #plot(clustering)
   dat[,(values):=factor(get(values),levels=c(labels(clustering)),ordered = T)]
+  invisible(dat)
 }
 
 
@@ -305,7 +325,7 @@ drawBlastPlots <- function(hitdata,readanno_sampled_overview,baseheight=576){
   logevallength = ggplot(hitdata) + aes(x=length,y=log(evalue)) + stat_density2d(aes(fill = ..density..), geom = "raster", contour = FALSE) + facet_grid(cols = vars(sample)) + xlab("Alignment Length") + ylab("ln(Evalue)") + labs(fill="(Estimated)\nDensity")
   hitdata[,scov:=length/slen*100]
   covlength = ggplot(hitdata) + aes(x=length,y=scov) + stat_density2d(aes(fill = ..density..), geom = "raster", contour = FALSE) + facet_grid(cols = vars(sample)) + xlab("Alignment Length") + ylab("Subject coverage") + labs(fill="(Estimated)\nDensity")  + scale_y_continuous(labels = function(x) paste0(x, "%"))
-  subjecthitcounts = hitdata[,.N,by=c("sseqid","sample")]
+  subjecthitcounts = hitdata[,.N,by=c("sname","sample")]
   subjecthitcounts[,rel:=N/sum(N)*100,by="sample"]
   persubjectrelcount =  ggplot(subjecthitcounts) + aes(x=sample,y=rel,color=sample) + geom_boxplot() + theme(legend.position = "none") + xlab("Sample") + ylab("Hits on a single subject of all") + scale_y_continuous(labels = function(x) paste0(x, "%"))
   
@@ -317,4 +337,29 @@ drawBlastPlots <- function(hitdata,readanno_sampled_overview,baseheight=576){
   drawrow()
   drawplotasis("Subject Coverage to alignment length","How much of the subject sequence length does the alignment cover?",covlength)
   drawplotasis("Hit count per subject","The number of reads in a sample that mapped to the same subject",persubjectrelcount)
+}
+
+
+# For Sourmash
+fixTaxCounts <- function(taxdat){
+  samplen <- unique(taxdat$sample)
+  taxdat[, sample:=NULL]
+  for(curdepth in 2:length(taxcols)){
+    subtract <- taxdat[depth==curdepth, ]
+    if(nrow(subtract)==0)
+      next
+    toreplace <- taxcols[curdepth:length(taxcols)]
+    subtract[, c(toreplace):=""]
+    subtract <- subtract[, .(minus=sum(count)), by=taxcols]
+    taxdat <- merge(taxdat, subtract, on=taxcols, all.x=TRUE)
+    taxdat[is.na(minus), minus:=0]
+    taxdat[, count:=count-minus]
+    taxdat[, minus:=NULL]
+    taxdat <- taxdat[count!=0,]
+  }
+  taxdat[, depth:=NULL]
+  setcolorder(taxdat, c("count"))
+  taxdat[,(taxcols):=lapply(.SD, function(col)sub(".__(.+)","\\1",col)),.SD=taxcols]
+  taxdat[, sample:=samplen]
+  taxdat
 }

@@ -2,7 +2,7 @@
 ##
 ## addTaxToCustomQueryDB.R - Add tax columns to the databases with NCBI Ascs.
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # Very similar to addTaxToCustomQueryDB.R, it uses external grep to prefilter
 # the database asc to taxid file to reduce the memory footprint during
@@ -65,6 +65,6 @@ load(translator_file)
 tax <- lookup(taxids, taxlevels = taxcols, threads = threads)
 database <- cbind(database, tax)
 database[, query := NULL]
-fwrite(database, file = output_file, sep = "\t")
+fwrite(database, file = output_file, sep = "\t", quote = F)
 kronadata <- cbind(freq = 1, All = "All", database[, taxcols, with = F])
-fwrite(kronadata, krona_file, col.names = F, sep = "\t")
+fwrite(kronadata, krona_file, col.names = F, sep = "\t", quote = F)

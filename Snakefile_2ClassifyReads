@@ -1,104 +1,164 @@
 ##
 ## Snakefile_2PrepareReads - Rules for read classification
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # This file contains the read classification 
 # based on SSU reads and all reads.
 
-# Classification results
+
+localrules: downlaod_ssu_fasta, ssu_db_krona, downlaod_ssu_arb, combine_bbmap_sina_file, download_ncbi_tax, kaiju_data_sample, kaiju_krona_file, sina_krona_file, sourmash_lca_summarize_krona
+
+
 basedir_readclass = config["output_dir"]+"/ReadClassification"
+basedir_bench_readclass = basedir_bench + "/ReadClassification"
+basedir_data_readclass = basedir_data + "/ReadClassification"
 
 silva_fasta_url = "https://www.arb-silva.de/fileadmin/silva_databases/release_{config[silva_version]}/Exports/SILVA_{config[silva_version]}_SSURef_Nr99_tax_silva.fasta.gz"
+sourmash_readclass_k = "51"
+
+# 51
+sourmash_lca_url = "https://files.osf.io/v1/resources/wxf9z/providers/osfstorage/5e08bd851a65e9004971ca85?action=download&direct&version=1"
+sourmash_lca_name = "gtdb-release89-k51-lowrank.lca.json.gz"
+
+# 31
+#sourmash_lca_url = "https://files.osf.io/v1/resources/wxf9z/providers/osfstorage/5e08bd7f1a65e900417242aa?action=download&direct&version=1"
+#sourmash_lca_name = "gtdb-release89-k31-lowrank.lca.json.gz"
 
 # Download the SSU fasta from Silva
 rule downlaod_ssu_fasta:
+   version: "1.0"
    output:
-      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_Nr99_tax_silva.fasta"
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva.fasta"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading SILVA SSU NR99 version {config[silva_version]} FASTA"
    shell:
-      "wget -qO- "+silva_fasta_url+" | gunzip > {output}"
+      "wget -qO- " + silva_fasta_url + " | gunzip > {output}"
+
+
+# Create Krona data file for the database
+rule ssu_db_krona:
+   version: "1.0"
+   input:
+      rules.downlaod_ssu_fasta.output
+   output:
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating SSU Krona reference database file"
+   script:
+      "scripts/DataExtraction/SILVAforKrona.py"
+
 
 # Build BBmap SSU index
 rule bbmap_index:
    input:
       rules.downlaod_ssu_fasta.output
-   output:
-      directory(basedir_dbs+"/SILVABBMap_"+config["silva_version"]+"/ref")
    params:
-      basename=basedir_dbs+"/SILVABBMap_"+config["silva_version"]
+      basename = basedir_dbs + "/SSU/SILVABBMap_" + config["silva_version"]
+   output:
+      directory(basedir_dbs + "/SSU/SILVABBMap_" + config["silva_version"] + "/ref")
    log:
-      basedir_dbs+"/SILVABBMap_"+config["silva_version"]+"/index.log"
+      basedir_dbs + "/SSU/SILVABBMap_" + config["silva_version"] + "/index.log"
+   benchmark:
+      basedir_bench_readclass + "/silva_ssu_BBmap_index_v" + config["silva_version"] + ".tsv"
+   threads: 
+      32
    conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Building SILVA SSU NR99 version {config[silva_version]} BBMap index"
    shell:
       "bbmap.sh ref={input} path={params.basename} t={threads} &> {log}"
 
 
 # Filter reads SSU with BBmap using the Silva database.
 rule filter_ssu_reads:
+   version: "1.0"
    input:
-      ref=rules.bbmap_index.input,
-      db=rules.bbmap_index.output,
-      reads=classfication_fastq()
-   output:
-      bam=basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.bam",
-      fasta=basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.fasta"
+      ref = rules.bbmap_index.input,
+      db = rules.bbmap_index.output,
+      reads = classfication_fastq()
    params:
-      dbbase=rules.bbmap_index.params.basename,
+      dbbase = rules.bbmap_index.params.basename,
+   output:
+      bam = basedir_readclass + "/SSU/{sample}/{sample}_bbmap_SSU.bam",
+      fasta = basedir_readclass + "/SSU/{sample}/{sample}_bbmap_SSU.fasta"
    log:
-      basedir_readclass+"/SSU/{sample}/{sample}_bbmap_SSU.out",
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      basedir_readclass + "/SSU/{sample}/{sample}_bbmap_SSU.out",
+   benchmark:
+      basedir_bench_readclass + "/ssu_bbmap_map_{sample}.tsv"
+   threads:
+      16
    resources:
       mem_mb = 16*1000
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Mapping {wildcards.sample} analysis reads to SSU index for filtering"
    shell:
       ("{{ bbwrap.sh -Xmx{resources.mem_mb}M  minid={config[ssu_min_id]} "
        "in={input.reads} ref={input.ref} path={params.dbbase} t={threads} "
        "usejni=t mdtag=t nmtag=t xmtag=t outm={output.bam} && "
        "samtools fasta {output.bam} > {output.fasta} ; }} &> {log}")
 
+
 # Download the SSU arbfile from Silva
 rule downlaod_ssu_arb:
+   version: "1.0"
    output:
-      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.arb"
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_NR99_opt.arb"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading SILVA SSU NR99 version {config[silva_version]} ARB"
    shell:
       "wget -qO- https://www.arb-silva.de/fileadmin/silva_databases/{config[silva_arb]} | gunzip > {output}"
 
+
 # Build reference files for SINA
 rule sina_index:
+   version: "1.0"
    input:
-      db=rules.downlaod_ssu_arb.output
+      db = rules.downlaod_ssu_arb.output
    output:
-      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.sidx"
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_NR99_opt.sidx"
    log:
-      basedir_dbs+"/sina/SILVA_"+config["silva_version"]+"_SSURef_NR99_opt.log"
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_NR99_opt.log"
+   benchmark:
+      basedir_bench_readclass + "/silva_ssu_SINA_index_v" + config["silva_version"] + ".tsv"
+   threads:
+      32
    conda:
       "envs/sina.yml"
-   threads:
-      30
+   message:
+      "Building SILVA SSU NR99 version {config[silva_version]} SINA index"
    shell:
       "echo \">BuildingDB\nAAAAAAAAAAAAAAAAAA\n\" |sina -r {input.db} -p {threads} --fs-engine internal &> {log}"
 
 # Classify the filtered reads with SINA
 rule classify_ssu:
+   version: "1.0"
    input:
       rules.sina_index.output,
-      db=rules.downlaod_ssu_arb.output,
-      toalign=rules.filter_ssu_reads.output.fasta
+      db = rules.downlaod_ssu_arb.output,
+      toalign = rules.filter_ssu_reads.output.fasta
    output:
-      fasta=basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.fasta",
-      csv=basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.csv"
+      fasta = basedir_readclass + "/SSU/{sample}/{sample}_sina_hits.fasta",
+      csv = basedir_readclass + "/SSU/{sample}/{sample}_sina_hits.csv"
    log:
-      basedir_readclass+"/SSU/{sample}/{sample}_sina_hits.log"
+      basedir_readclass + "/SSU/{sample}/{sample}_sina_hits.log"
+   benchmark:
+      basedir_bench_readclass + "/sina_{sample}.tsv"
+   threads:
+      16
    conda:
       "envs/sina.yml"
-   threads: 30
+   message:
+      "Classifying {wildcards.sample} SSU reads with SINA"
    shell:
       ("sina -i {input.toalign} -o {output.fasta} -r {input.db} -S --meta-fmt csv "
        "-v --fs-msc={config[sina_min_sim]} --search-min-sim={config[sina_min_sim]} "
@@ -106,59 +166,491 @@ rule classify_ssu:
        "--lca-fields tax_slv,tax_embl,tax_gg,tax_rdp,tax_gg -p {threads} "
        "-t --fs-engine internal &> {log}")
 
+
+# Combine bbmap and sina datasets
+rule combine_bbmap_sina_file:
+   version: "1.0"
+   input:
+      bam = rules.filter_ssu_reads.output.bam,
+      sina = rules.classify_ssu.output.csv
+   output:
+      out = basedir_data_readclass + "/{sample}_readclassification_SSU.tsv",
+   conda:
+      "envs/R.yml"
+   message:
+      "Combining BBmap and SINA SSU data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/CombineBBMapAndSinaData.R"
+
+
+# Convert sina results into krona tsv files
+rule sina_krona_file:
+   version: "1.0"
+   input:
+      sinacsv = rules.classify_ssu.output.csv,
+   params:
+      taxfield = config["sina_taxfield"]
+   output:
+      kronatext = temp(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv")
+   message:
+      "Creating SSU Krona data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/parseSINAforKrona.py"
+
+rule SSU:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names)
+   message:
+      "SSU read classification done for all samples"
+
+
+rule SSURefData:
+   version: "1.0"
+   input:
+      rules.downlaod_ssu_arb.output,
+      rules.bbmap_index.output,
+      rules.ssu_db_krona.output
+   message:
+      "Generated reference data for SSU read classification"
+
+
+rule SSUKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names),
+      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names) + [basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"], sample_names + ["Database"])]
+   output:
+      basedir_reporting + "/SSU_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating SSU Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+# Create SSU report
+rule SSUReport:
+   input:
+      readanno_sampled_overview = rules.analysisReadsReport.input.readanno_sampled_overview,
+      readanno_sampled_toplot = rules.analysisReadsReport.input.readanno_sampled_toplot,
+      classSSUdata = expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      silvatax = config["sina_taxfield"],
+      samples = sample_names
+   output:
+      basedir_reporting + "/5.1SSUreport.html"
+   benchmark:
+      basedir_bench_prep + "/SSU_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Created SSU report"
+   script:
+      "scripts/Reports/read-SSU.Rmd"
+
+
 # Build Kaiju index
 rule kaiju_index:
-   output:
-      basedir_dbs+"/kaiju/kaiju_db_{kaijudb}.fmi"
-   log:
-      basedir_dbs+"/kaiju/kaiju_db_{kaijudb}.log"
+   version: "1.0"
    params:
-      basedir=basedir_dbs+"/kaiju/"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      basedir = basedir_dbs + "/Kaiju/"
+   output:
+      basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.fmi"
+   log:
+      basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.log"
+   benchmark:
+      basedir_bench_readclass + "/kaiju_{kaijudb}.tsv"
+   threads:
+      8
    shadow:
       "minimal"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating Kaiju index for database type {wildcards.kaijudb}"
    shell:
       ("{{ cd '{params.basedir}' && kaiju-makedb -t {threads} -s {wildcards.kaijudb} &&"
        " mv {wildcards.kaijudb}/kaiju_db_{wildcards.kaijudb}.fmi . ; }} &> {log}")
 
+rule kaiju_index_db_krona:
+   version: "1.0"
+   input:
+      basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.fmi"
+   output:
+      basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}_krona.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating Kaiju Krona reference database file"
+   script:
+      "scripts/DataExtraction/SILVAforKrona.py"
+
+
 # Download NCBI Taxonomy
 rule download_ncbi_tax:
    params:
-      dir=basedir_dbs+"/ncbitax/"
+      dir = basedir_dbs + "/NCBI_tax/"
    output:
-      names=basedir_dbs+"/ncbitax/names.dmp",
-      nodes=basedir_dbs+"/ncbitax/nodes.dmp"
+      names = basedir_dbs + "/NCBI_tax/names.dmp",
+      nodes = basedir_dbs + "/NCBI_tax/nodes.dmp"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading NCBI taxonomy dump"
    shell:
       "wget -qO- ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz | tar -C {params.dir} -xzf -"
 
+
 # Classify all reads using kaiju
 rule kaiju_sample:
+   version: "1.0"
    input:
-      reads=classfication_fastq(),
-      db=expand(rules.kaiju_index.output,kaijudb=config["kaiju_db"]),
-      nodes=rules.download_ncbi_tax.output.nodes,
-      names=rules.download_ncbi_tax.output.names
-   output:
-      base=basedir_readclass+"/kaiju/{sample}/{sample}_kaiju.tsv",
-      out=basedir_readclass+"/kaiju/{sample}/{sample}_kaiju_tax.tsv"
-   log:
-      basedir_readclass+"/kaiju/{sample}/{sample}_kaiju.log"
+      reads = classfication_fastq(),
+      db = expand(basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.fmi", kaijudb=config["kaiju_db"]),
+      nodes = rules.download_ncbi_tax.output.nodes,
+      names = rules.download_ncbi_tax.output.names
    params:
       args = {"greedy":"-a greedy -e "+str(config["kaiju_greedy_mismatches"])+" -s "+str(config["kaiju_greedy_score"]),
               "mem":"-a mem"}[config["kaiju_mode"]],  
       match_length = config["kaiju_matchlen"],
       greedy_eval = "-E "+str(config["kaiju_greedy_eval"]) if config["kaiju_mode"]=="greedy" and config["kaiju_greedy_eval"] >=0 else "", 
       lowcomplexfilter = "-x" if config["kaiju_lowcomplex_filter"] else "-X" 
+   output:
+      base = temp(basedir_readclass + "/kaiju/{sample}/{sample}_kaiju.tsv"),
+      out = basedir_readclass + "/kaiju/{sample}/{sample}_kaiju_tax.tsv"
+   log:
+      basedir_readclass + "/kaiju/{sample}/{sample}_kaiju.log"
+   benchmark:
+      basedir_bench_readclass + "/kaiju_{sample}.tsv"
+   threads: 
+      16
    conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running Kaiju for {wildcards.sample} with the {config[kaiju_db]} database"
    shell:
       ("{{ kaiju -t {input.nodes} -f {input.db} -i {input.reads} -v -z {threads} "
        "{params.args} -m {params.match_length} {params.greedy_eval} "
        "{params.lowcomplexfilter} -o {output.base} && kaiju-addTaxonNames "
        "-i {output.base} -o {output.out} -t {input.nodes} -n {input.names} "
        "-v -r superkingdom,phylum,class,order,family,genus,species ; }} &> {log}")
+
+
+# Add header to kaiju file 
+rule kaiju_data_sample:
+   version: "1.0"
+   input:
+      kaiju = basedir_readclass + "/kaiju/{sample}/{sample}_kaiju_tax.tsv",
+      seq = rules.kaiju_sample.input.reads
+   output:
+      basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Formatting Kaiju results for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/kaijuData.R"
+
+
+# Convert kaiju results into krona tsv files
+rule kaiju_krona_file:
+   version: "1.0"
+   input:
+      kaiju = basedir_readclass + "/kaiju/{sample}/{sample}_kaiju_tax.tsv",
+      nodes = rules.kaiju_sample.input.nodes,
+      names = rules.kaiju_sample.input.names
+   output:
+      kronatext = temp(basedir_data_readclass + "/{sample}_readclassification_kaiju_krona.tsv")
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Formatting Krona Kaiju results for {wildcards.sample}"
+   shell:
+      "kaiju2krona -t {input.nodes} -n {input.names} -i {input.kaiju} -o {output}"
+
+
+rule kaiju:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names)
+   message:
+      "Kaiju read classification done for all samples"
+
+
+rule kaijuRefData:
+   version: "1.0"
+   input:
+      expand(basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.fmi", kaijudb=config["kaiju_db"]),
+      rules.download_ncbi_tax.output.nodes,
+      rules.download_ncbi_tax.output.names
+   message:
+      "Generated reference data for Kaiju read classification"
+
+
+rule kaijuKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_kaiju_krona.tsv", sample=sample_names),
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_kaiju_krona.tsv", sample=sample_names), sample_names)]
+   output:
+      basedir_reporting + "/kaiju_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating Kaiju Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+# Create kaiju report
+rule kaijuReport:
+   version: "1.0"
+   input:
+      readanno_sampled_overview = rules.analysisReadsReport.input.readanno_sampled_overview,
+      readanno_sampled_toplot = rules.analysisReadsReport.input.readanno_sampled_toplot,
+      classkaijudata = expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names
+   output:
+      basedir_reporting + "/5.2kaijureport.html"
+   benchmark:
+      basedir_bench_prep + "/kaiju_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating Kaiju report"
+   script:
+      "scripts/Reports/read-kaiju.Rmd"
+
+
+# Download Sourmash LCA
+rule download_sourmash_lca:
+   version: "1.0"
+   output:
+      basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading Sourmash database " + sourmash_lca_name
+   shell:
+      "wget -qO {output} \"" + sourmash_lca_url + "\""
+
+
+# Calculate hashes
+rule sourmash_compute:
+   version: "1.0"
+   input:
+      classfication_fastq()
+   output:
+      basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig"
+   log:
+      basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.log"
+   benchmark:
+      basedir_bench_readclass + "/sourmash_k{k}_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Calculating sourmash {wildcards.k}-mer hashes for {wildcards.sample}" 
+   shell:
+      "sourmash compute -k {wildcards.k} --track-abundance --scaled {config[sourmash_scaled]} --seed 42 -f -o {output} {input} &> {log}"
+
+
+rule sourmash_describe:
+   version: "1.0"
+   input:
+      expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True)
+   output:
+      basedir_data_readclass + "/{sample}_sourmash_signature.tsv"
+   log:
+      basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_descr.log"
+   benchmark:
+      basedir_bench_readclass + "/sourmash_description_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Describing sourmash signature for {wildcards.sample}" 
+   shell:
+      "sourmash sig describe --csv {output} {input} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+   
+
+# Run the gathering
+rule sourmash_gather:
+   version: "1.0"
+   input:
+      sig = expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True),
+      db = basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   params:
+      k = sourmash_readclass_k
+   output:
+      basedir_data_readclass + "/{sample}_readclassification_sourmash_gather.tsv"
+   log:
+      basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_gather.log"
+   benchmark:
+      basedir_bench_readclass + "/sourmash_gather_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running sourmash gather analysis for {wildcards.sample}" 
+   shell:
+      "sourmash gather -k {params.k} -o {output} {input.sig}  {input.db} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+# Run the LCA summarization
+rule sourmash_lca_summarize:
+   version: "1.0"
+   input:
+      sig = expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True),
+      db = basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   output:
+      basedir_data_readclass + "/{sample}_readclassification_sourmash_lca.tsv"
+   log:
+      basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_lca.log"
+   benchmark:
+      basedir_bench_readclass + "/sourmash_lca_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running sourmash LCA analysis for {wildcards.sample}" 
+   shell:
+      "sourmash lca summarize --db {input.db} --query {input.sig} -o {output} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+# Transform to krona data file
+rule sourmash_lca_summarize_krona:
+   version: "1.0"
+   input:
+      basedir_data_readclass + "/{sample}_readclassification_sourmash_lca.tsv"
+   output:
+      temp(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca_krona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Converting Sourmash LCA data into the Krona format for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/sourmashSummaryToKrona.R"
+
+
+rule sourmash_compare_samples:
+   version: "1.0"
+   input:
+      expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, sample=sample_names),
+   params:
+      header = ",".join(sample_names),
+      k = sourmash_readclass_k
+   output:
+      basedir_data_readclass + "/sourmash_sample_comparison.tsv"
+   log:
+      basedir_readclass + "/sourmash/sourmash_sample_comparison.log"
+   benchmark:
+      basedir_bench_readclass + "/sourmash_comparison.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Comparing the samples using sourmash"
+   shell:
+      "sourmash compare -k {params.k} {input} --csv {output} &> {log} && sed -i -e '1c {params.header}' {output} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+rule sourmash:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
+      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names)
+   message:
+      "Sourmash gather and lca read classification done for all samples"
+
+
+rule sourmashRefData:
+   version: "1.0"
+   input:
+      basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   message:
+      "Downloaded Sourmash GenomeDB database"
+
+
+rule sourmashKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca_krona.tsv", sample=sample_names),
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca_krona.tsv", sample=sample_names), sample_names)]
+   output:
+      basedir_reporting + "/sourmash_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating Sourmash Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+# Create SSU report
+rule sourmashReport:
+   input:
+      sig = expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names),
+      gather = expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_gather.tsv", sample=sample_names),
+      lca = expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca.tsv", sample=sample_names),
+      comparison = basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names
+   output:
+      basedir_reporting + "/5.3sourmashReport.html"
+   benchmark:
+      basedir_bench_prep + "/sourmash_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Created sourmash report"
+   script:
+      "scripts/Reports/read-sourmash.Rmd"
+
+
+rule classifyReadsKrona:
+   input:
+      basedir_reporting + "/SSU_krona.html",
+      basedir_reporting + "/kaiju_krona.html",
+      basedir_reporting + "/sourmash_krona.html"
+   message:
+      "Generated all read classification krona reports"
+
+
+rule classifyReadsRefData:
+   input:
+      rules.downlaod_ssu_arb.output,
+      rules.bbmap_index.output,
+      rules.ssu_db_krona.output,
+      expand(basedir_dbs + "/Kaiju/kaiju_db_{kaijudb}.fmi", kaijudb=config["kaiju_db"]),
+      rules.download_ncbi_tax.output.nodes,
+      rules.download_ncbi_tax.output.names,
+      basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   message:
+      "Collected the reference data for read classification"
+
+
+rule classifyReads:
+   input:
+      expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names),
+      expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names),
+      expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
+      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names)
+   message:
+      "Ran all read classification methods"
+
+
+rule classifyReadsReport:
+   input:
+      basedir_reporting + "/5.1SSUreport.html",
+      basedir_reporting + "/5.2kaijureport.html",
+      basedir_reporting + "/5.3sourmashReport.html"
+   message:
+      "Generated all read classification reports"

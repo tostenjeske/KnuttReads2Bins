@@ -1,4 +1,4 @@
-name: Knutt2Reads2Bins
+name: KnuttReads2Bins
 channels:
   - conda-forge
   - bioconda
@@ -19,5 +19,5 @@ dependencies:
   - metabat2=2.15
   - checkm-genome=1.1.2
   - krona=2.7.1
-  - sourmash=3.2.0
+  - sourmash=3.2.2
   - blast

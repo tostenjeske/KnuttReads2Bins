@@ -10,7 +10,7 @@ dependencies:
   - bioconductor-shortread=1.40.0
   - bioconductor-biostrings=2.50.2
   # Newer plotly version break multi tab rendering (sometimes!)
-  - r-plotly=4.8.0
+  - r-plotly=4.9.2
   - r-matrixstats=0.55.0
   - r-stringr=1.4.0
   - r-dt=0.11

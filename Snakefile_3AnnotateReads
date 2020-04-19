@@ -1,7 +1,7 @@
 ##
 ## Snakefile_3AnnotateReads - Rules for read annotation
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # This file contains the rules for annotating reads using custom
 # databases. Some databases are built-in and others can be provided by
@@ -10,18 +10,27 @@
 import csv
 import itertools
 
+
+localrules: download_ncbi_prot_taxmap, download_ncbi_prot_acc_taxmap, download_hyddb, download_cazydb, download_enzyme, cazyfunkronadata_sample, cazyfunkronadata_db, read_anno_krona_file
+
+
 # Read annotation results
-basedir_readanno=config["output_dir"]+"/ReadAnnotation"
+basedir_readanno = config["output_dir"]+"/ReadAnnotation"
+basedir_bench_readanno = basedir_bench + "/ReadAnnotation"
+basedir_data_readanno = basedir_data + "/ReadAnnotation"
+basedir_db_readanno = basedir_dbs + "/ReadAnnotation/Protein"
 
 # The files to read UniProt queries from
 customdbs = glob_wildcards("data/readanno_{customfile}.tsv").customfile
 # The names of databases integrated into the workflow
-integrateddbs = ["CAZyDB","hyddb"]
+integrateddbs = ["CAZyDB", "HydDB"]
 
 wildcard_constraints:
-   customfile="|".join(customdbs),
-   integrateddb="|".join(integrateddbs),
-   dbswithkrona="|".join(integrateddbs+customdbs)
+   customfile = "|".join(customdbs),
+   integrateddb = "|".join(integrateddbs),
+   dbswithkrona = "|".join(integrateddbs + customdbs),
+   kronatype = "funkrona|krona"
+
 
 # Construct the query for a database name
 # This done by reading the file and joining the entries in the second
@@ -37,76 +46,107 @@ def construct_custom_query(wildcards):
             query += " AND reviewed:yes"
     return query
 
+
 # Download a custom protein database from a file giving UniProt queries
 uniproturl = "https://www.uniprot.org/uniprot/?query={params.query}&columns=id,entry name,reviewed,protein names,genes,organism,database(CAZy),protein name,comment(PATHWAY),ec,organism-id,lineage-id,sequence,database(KO)&format=tab&compress=yes"
 rule download_custom_query:
+   version: "1.0"
    params:
       query = construct_custom_query
    output:
-      tsv = basedir_dbs+"/readanno/prot/raw/{customfile}.tsv",
-      fasta = basedir_dbs+"/readanno/prot/{customfile}.fasta"
+      tsv = basedir_db_readanno + "/raw_{customfile}.tsv",
+      fasta = basedir_db_readanno + "/{customfile}.fasta"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading custom UniProtKB based reference {wildcards.customfile}\n{params.query}"
+   group:
+      "customdb"
    shell:
-      ("wget '"+uniproturl+"' -qO- | gunzip | tee {output.tsv} | "
+      ("wget '"+ uniproturl +"' -qO- | gunzip | tee {output.tsv} | "
       "tail -n +2| awk -F '\\t' '{{print \">\"$1\"\\n\"$12}}' "
       "> {output.fasta}")
 
+
 # Create the RData file with the taxanomy infomation and methods
 rule ncbi_translator:
+   version: "1.0"
    input:
-      names=rules.download_ncbi_tax.output.names,
-      nodes=rules.download_ncbi_tax.output.nodes,
+      names = rules.download_ncbi_tax.output.names,
+      nodes = rules.download_ncbi_tax.output.nodes,
    output:
-      basedir_dbs+"/ncbitax/ncbi_tax.RData"
-   conda: "envs/R.yml"
-   threads: 4
+      basedir_dbs + "/NCBI_tax/ncbi_tax.RData"
+   benchmark:
+      basedir_bench_readanno + "/ncbi_tax_prep.tsv"
+   threads:
+      8
+   conda:
+      "envs/R.yml"
+   message:
+      "Preparing NCBI tax translator"
    script:
       "scripts/BuildDBs/prepNCBItax.R"
 
 
 # Add tax info to a custom downloaded database
 rule process_custom_query:
+   version: "1.0"
    input:
-      db=rules.download_custom_query.output.tsv,
-      translator=rules.ncbi_translator.output
+      db = rules.download_custom_query.output.tsv,
+      translator = rules.ncbi_translator.output
    output:
-      db=basedir_dbs+"/readanno/prot/{customfile}.tsv",
-      krona=basedir_dbs+"/readanno/prot/{customfile}.krona"
+      db = basedir_db_readanno + "/{customfile}.tsv",
+      krona = basedir_db_readanno + "/{customfile}_krona.tsv"
+   benchmark:
+      basedir_bench_readanno + "/custom_db_proc_{customfile}.tsv"
+   threads:
+      1
    conda:
       "envs/R.yml"
-   threads:
-      8
+   message:
+      "Formatting {wildcards.customfile} database"
+   group:
+      "customdb"
    script:
       "scripts/BuildDBs/addTaxToCustomQueryDB.R"
 
+
 # Extract a tax map from the custom uniprot download
 rule custom_query_taxmap:
+   version: "1.0"
    input:
       rules.download_custom_query.output.tsv
    output:
-      basedir_dbs+"/readanno/prot/{customfile}.taxmap"
+      basedir_db_readanno + "/{customfile}.taxmap"
+   message:
+      "Creating tax map for the {wildcards.customfile} database"
+   group:
+      "customdb"
    shell:
       "cat {input} | cut -f 1,10 > {output}"
 
+
 # Download the gi prot NCBI taxmap
 rule download_ncbi_prot_taxmap:
+   version: "1.0"
    output:
-      basedir_dbs+"/ncbitax/ncbi_taxid_gi_prot.dmp"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      basedir_dbs + "/NCBI_tax/ncbi_taxid_gi_prot.dmp"
+   message:
+      "Downloading GI tax map"
    shell:
       ("wget -qO- ftp.ncbi.nih.gov/pub/taxonomy/gi_taxid_prot.dmp.gz | "
        "gunzip | tail -n +2 > {output}")
 
+
 # Download the accession prot NCBI taxmap
 rule download_ncbi_prot_acc_taxmap:
+   version: "1.0"
    output:
-      filtered=basedir_dbs+"/ncbitax/ncbi_taxid_acc_prot_with_dead.dmp",
-      ori=basedir_dbs+"/ncbitax/prot.accession2taxid.gz",
-      dead=basedir_dbs+"/ncbitax/dead_prot.accession2taxid.gz"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      filtered = basedir_dbs + "/NCBI_tax/ncbi_taxid_acc_prot_with_dead.dmp",
+      ori = basedir_dbs + "/NCBI_tax/prot.accession2taxid.gz",
+      dead = basedir_dbs + "/NCBI_tax/dead_prot.accession2taxid.gz"
+   message:
+      "Downloading protein accession tax map"
    shell:
       ("wget  -qO- ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/prot.accession2taxid.gz | "
       "tee {output.ori} | gunzip | cut -f 2,3 | tail -n +2 > {output.filtered} && "
@@ -118,51 +158,65 @@ rule download_ncbi_prot_acc_taxmap:
 def taxmap(wildcards):
    if wildcards["blastdb"] in customdbs:
       return expand(rules.custom_query_taxmap.output,
-                    customfile=wildcards["blastdb"])
+                    customfile = wildcards["blastdb"])
    return rules.download_ncbi_prot_acc_taxmap.output.filtered
+
 
 # Return compressed versions
 def compressed_taxmap(w): 
    if isinstance(taxmap(w), list):
-      return [x+".dia.gz" for x in taxmap(w)]
+      return [x + ".dia.gz" for x in taxmap(w)]
    else:
-      return taxmap(w)+".dia.gz"
+      return taxmap(w) + ".dia.gz"
+
 
 # Compress a taxmap file with filler content when needed
 rule compress_taxmap:
+   version: "1.0"
    input:
-      basedir_dbs+"/{file}"
+      basedir_dbs + "/{file}"
    output:
-      basedir_dbs+"/{file}.dia.gz"
+      basedir_dbs + "/{file}.dia.gz"
+   threads:
+      4
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Compressing tax map {wildcards.file}"
    shell:
-      "sed \"s/.*/PXXXXX\t&\t9999999/\" {input} | gzip > {output}"
+      "sed \"s/.*/PXXXXX\t&\t9999999/\" {input} | pigz -p {threads} > {output}"
+
 
 hyddb_header = "Date1\tDate2\tsseqid\tHydDB_species\tHydrogenaseClass\tSequence\tnt_sequence1\tnt_sequence2\tHydDB_phylum\tHydDB_order\tPredictedActivity\tPredictedOxyTolerance\tPredictedSubunitsNumber\tPredictedMetalCentres\tPredictedSubunits"
 
+
 # Download the hydrogenases from HydDB
 rule download_hyddb:
+   version: "1.0"
    output:
-      fasta=basedir_dbs+"/readanno/prot/hyddb.fasta",
-      tsv=basedir_dbs+"/readanno/prot/raw/hyddb.tsv"
+      fasta = basedir_db_readanno + "/HydDB.fasta",
+      tsv = basedir_db_readanno + "/raw_HydDB.tsv"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading HydDB data"
    shell:
-      ("echo '"+hyddb_header+"' > {output.tsv} && wget -qO- "
+      ("echo '" + hyddb_header + "' > {output.tsv} && wget -qO- "
        "'https://services.birc.au.dk/hyddb/browser/download.csv?' | "
        "tr ';' '\\t' | awk '/[^\"]\\r$/ {{ printf(\"%s\", $0); next }} 1' | "
        "tr -d '\\r' | tee -a {output.tsv} | tr -d '\"' | "
        "awk -F $'\\t' '{{print \">\"$3\"\\n\"$6}}' > {output.fasta}")
 
+
 # Download the CAZYdb from dbCAN2
 rule download_cazydb:
+   version: "1.0"
    output:
-      fasta=basedir_dbs+"/readanno/prot/CAZyDB.fasta",
-      tsv=basedir_dbs+"/readanno/prot/raw/CAZyDB.tsv",
-      descr=basedir_dbs+"/readanno/prot/CAZyDB-fam-activities.txt"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      fasta = temp(basedir_db_readanno + "/CAZyDB.fasta"),
+      tsv = temp(basedir_db_readanno + "/raw_CAZyDB.tsv"),
+      descr = basedir_db_readanno + "/CAZyDB-fam-activities.txt"
+   message:
+      "Downloading CAZyDB data"
    shell:
       ("echo 'sseqid\tCAZyECs' > {output.tsv} && wget -qO- "
        "http://bcb.unl.edu/dbCAN2/download/Databases/CAZyDB.07312019.fa | "
@@ -170,48 +224,77 @@ rule download_cazydb:
        "sed 's/ /\t/' >> {output.tsv} && wget -qO {output.descr} "
        "http://bcb.unl.edu/dbCAN2/download/Databases/CAZyDB.07312018.fam-activities.txt")
 
-# Add tax info to a ascension based file
+
+# Add tax info to a accession based file
 rule process_custom_query_asc:
+   version: "1.0"
    input:
-      db=basedir_dbs+"/readanno/prot/raw/{integrateddb}.tsv",
-      translator=rules.ncbi_translator.output,
-      asctax=rules.download_ncbi_prot_acc_taxmap.output.filtered
+      db = basedir_db_readanno + "/raw_{integrateddb}.tsv",
+      translator = rules.ncbi_translator.output,
+      asctax = rules.download_ncbi_prot_acc_taxmap.output.filtered
    output:
-      db=basedir_dbs+"/readanno/prot/{integrateddb}.tsv",
-      krona=basedir_dbs+"/readanno/prot/{integrateddb}.krona"
+      db = basedir_db_readanno + "/{integrateddb}.tsv",
+      krona = basedir_db_readanno + "/{integrateddb}_krona.tsv"
+   benchmark:
+      basedir_bench_readanno + "/integrated_db_proc_{integrateddb}.tsv"
+   threads:
+      4
    conda:
       "envs/R.yml"
-   threads:
-      8
+   message:
+      "Adding tax data to {wildcards.integrateddb}"
    script:
       "scripts/BuildDBs/addTaxToAscDB.R"
 
+
+rule cazyfunkronadata_db:
+   version: "1.0"
+   input:
+      basedir_db_readanno + "/{integrateddb}.tsv",
+   output:
+      basedir_db_readanno + "/{integrateddb}_funkrona.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Converting CAZyDB reference data for functional Krona"
+   script:
+      "scripts/DataExtraction/CAZyDBReadAnnoforKrona.R"
+
+
 # Download Expasy Enzyme database
 rule download_enzyme:
+   version: "1.0"
    output:
-      enzyme=basedir_dbs+"/enzymes/expasy_enzyme.dat",
-      classes=basedir_dbs+"/enzymes/expasy_enzyme_classes.txt"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      enzyme = basedir_dbs + "/Enzymes/expasy_enzyme.dat",
+      classes = basedir_dbs + "/Enzymes/expasy_enzyme_classes.txt"
+   message:
+      "Downloading ExPASy data"
    shell:
       ("wget -qO- ftp://ftp.expasy.org/databases/enzyme/enzyme.dat > {output.enzyme} && "
        "wget -qO- ftp://ftp.expasy.org/databases/enzyme/enzclass.txt > {output.classes}")
 
+
 # Build a diamond reference
 rule diamond_index:
+   version: "1.0"
    input:
-      seqs=basedir_dbs+"/readanno/prot/{blastdb}.fasta",
-      taxmap=compressed_taxmap,
-      taxnodes=rules.download_ncbi_tax.output.nodes
+      seqs = basedir_db_readanno + "/{blastdb}.fasta",
+      taxmap = compressed_taxmap,
+      taxnodes = rules.download_ncbi_tax.output.nodes
    params:
-      db=basedir_dbs+"/readanno/prot/{blastdb}"
+      db = basedir_db_readanno + "/{blastdb}"
    output:
-      basedir_dbs+"/readanno/prot/{blastdb}.dmnd"
+      basedir_db_readanno + "/{blastdb}.dmnd"
    log:
-      basedir_dbs+"/readanno/prot/{blastdb}.std.log"
-   threads: 30
+      basedir_db_readanno + "/{blastdb}.std.log"
+   benchmark:
+      basedir_bench_readanno + "/diamond_index_{blastdb}.tsv"
+   threads:
+      32
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating DIAMOND index for {wildcards.blastdb}"
    shell:
       ("diamond makedb -p {threads} --db {params.db} --in {input.seqs} "
        "-v --taxonmap {input.taxmap} --taxonnodes {input.taxnodes} &> {log}")
@@ -221,24 +304,262 @@ rule diamond_index:
 blastcolumns = ["qseqid","sseqid","pident","length","mismatch","gapopen",
                 "qstart","qend","sstart","send","evalue","bitscore",
                 "staxids","stitle","qlen","slen"]
+
+
 rule diamond_run:
+   version: "1.0"
    input:
-      db=rules.diamond_index.output,
-      query=classfication_fastq()
+      db = rules.diamond_index.output,
+      query = classfication_fastq()
    params:
-      db=rules.diamond_index.params.db,
-      columns=" ".join(blastcolumns),
-      evalue='{:.20f}'.format(config["readanno_evalue"])
+      db = rules.diamond_index.params.db,
+      columns = " ".join(blastcolumns),
+      evalue = '{:.20f}'.format(config["readanno_evalue"])
    output:
-      basedir_readanno+"/{sample}/{sample}_prot_{blastdb}_blast.tsv"
+      basedir_readanno + "/{sample}/{sample}_prot_{blastdb}_blast.tsv"
    log: 
-      basedir_readanno+"/{sample}/{sample}_prot_{blastdb}_blast.log"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      basedir_readanno + "/{sample}/{sample}_prot_{blastdb}_blast.log"
+   benchmark:
+      basedir_bench_readanno + "/diamond_run_{blastdb}_{sample}.tsv"
    threads:
-      30
+      16
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running DIAMOND blastx for {wildcards.sample} against {wildcards.blastdb}"
    shell:
       ("diamond blastx --db {params.db} --query {input.query} "
        "--out {output} --outfmt 6 {params.columns} "
        "--evalue {params.evalue} -p {threads} &> {log}")
 
+
+# Annotate custom BLAST results
+rule customblastanno:
+   version: "1.0"
+   input:
+      blastxres = basedir_readanno + "/{sample}/{sample}_prot_{db}_blast.tsv",
+      datafile = basedir_db_readanno + "/{db}.tsv",
+      seq = classfication_fastq()
+   params:
+      blastxcolnames = blastcolumns
+   output:
+      basedir_data_readanno + "/{sample}_readanno_{db}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Merging {wildcards.db} data to the {wildcards.sample} result"
+   script:
+      "scripts/DataExtraction/mergeDBintoBLASTXres.R"
+
+
+rule cazyfunkronadata_sample:
+   version: "1.0"
+   input:
+      expand(basedir_data_readanno + "/{sample}_readanno_CAZyDB.tsv", sample=sample_names)
+   output:
+      temp(basedir_data_readanno + "/{sample}_readanno_CAZyDB_funkrona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Converting {wildcards.sample} CAZyDB data for functional Krona"
+   script:
+      "scripts/DataExtraction/CAZyDBReadAnnoforKrona.R"
+
+
+# Construct krona tsv file from a read BLAST annotation
+rule read_anno_krona_file:
+   version: "1.0"
+   input:
+      basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv"
+   output:
+      temp(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}_krona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Converting {wildcards.sample} {wildcards.dbswithkrona} data for tax Krona"
+   script:
+      "scripts/DataExtraction/kronaFromTaxCols.R"
+
+
+def getReadAnnoScript(w):
+   script = expand("scripts/Reports/readanno_{dbswithkrona}.Rmd", **w)[0]
+   if os.path.isfile(script):
+      return script
+   else:
+      return "scripts/Reports/readanno_customdb.Rmd"
+
+
+# Create read anno report
+rule readannoreport_db:
+   version: "1.0"
+   input:
+      readanno_sampled_overview = rules.analysisReadsReport.input.readanno_sampled_overview,
+      readanno_sampled_toplot = rules.analysisReadsReport.input.readanno_sampled_toplot,
+      commons = "scripts/Reports/commonReport.R",
+      db = basedir_db_readanno + "/{dbswithkrona}.tsv",
+      hits = expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv", sample=sample_names, allow_missing=True),
+      script = getReadAnnoScript
+   params:
+      samples = sample_names
+   output:
+      basedir_reporting + "/6readanno_{dbswithkrona}.html"
+   benchmark:
+      basedir_bench_prep + "/readanno_{dbswithkrona}_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating report for {wildcards.dbswithkrona}"
+   script:
+      "scripts/Reports/renderReport.R"
+
+
+rule readannokrona:
+   version: "1.0"
+   input:
+     expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}_{kronatype}.tsv", sample=sample_names, allow_missing=True),
+     basedir_db_readanno + "/{dbswithkrona}_{kronatype}.tsv",
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}_{kronatype}.tsv", sample=sample_names, allow_missing=True) + [basedir_db_readanno + "/{dbswithkrona}_{kronatype}.tsv"], sample_names + ["Database"])]
+   output:
+      basedir_reporting + "/readanno_{dbswithkrona}_{kronatype}.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating read annotation Krona report for {wildcards.dbswithkrona}"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+rule readAnnoCAZyDBRefData:
+   version: "1.0"
+   input:
+      basedir_db_readanno + "/CAZyDB.tsv",
+      basedir_db_readanno + "/CAZyDB.dmnd",
+      basedir_db_readanno + "/CAZyDB_funkrona.tsv",
+   message:
+      "Created reference data for CAZyDB read annotation"
+
+
+rule readAnnoCAZyDB:
+   version: "1.0"
+   input:
+      expand(basedir_data_readanno + "/{sample}_readanno_CAZyDB.tsv", sample=sample_names)
+   message:
+      "Ran read DIAMOND BLASTX against CAZyDB"
+
+
+rule readAnnoCAZyDBReport:
+   version: "1.0"
+   input:
+      basedir_reporting + "/6readanno_CAZyDB.html"
+   message:
+      "Finished generating the CAZyDB report"
+
+
+rule readAnnoCAZyDBKrona:
+   version: "1.0"
+   input:
+      basedir_reporting + "/readanno_CAZyDB_krona.html",
+      basedir_reporting + "/readanno_CAZyDB_funkrona.html"
+   message:
+      "Finished generating the CAZyDB tax Krona"
+
+
+rule readAnnoHydDBRefData:
+   version: "1.0"
+   input:
+      basedir_db_readanno + "/HydDB.tsv",
+      basedir_db_readanno + "/HydDB.dmnd"
+   message:
+      "Created reference data for HydDB read annotation"
+
+
+rule readAnnoHydDB:
+   version: "1.0"
+   input:
+      expand(basedir_data_readanno + "/{sample}_readanno_HydDB.tsv", sample=sample_names)
+   message:
+      "Ran read DIAMOND BLASTX against HydDB"
+
+
+rule readAnnoHydDBReport:
+   version: "1.0"
+   input:
+      basedir_reporting + "/6readanno_HydDB.html"
+   message:
+      "Finished generating the HydDB report"
+
+
+rule readAnnoHydDBKrona:
+   version: "1.0"
+   input:
+      basedir_reporting + "/readanno_HydDB_krona.html"
+   message:
+      "Finished generating the HydDB tax Krona"
+
+
+rule readAnnoCustomRefData:
+   version: "1.0"
+   input:
+      expand(basedir_db_readanno + "/{customfile}.tsv", customfile=customdbs),
+      expand(basedir_db_readanno + "/{customfile}.dmnd", customfile=customdbs)
+   message:
+      "Created reference data for all custom databases"
+
+
+rule readAnnoCustom:
+   version: "1.0"
+   input:
+      expand(basedir_data_readanno + "/{sample}_readanno_{customfile}.tsv", sample=sample_names, customfile=customdbs)
+   message:
+      "Ran read DIAMOND BLASTX against all custom databases"
+
+
+rule readAnnoCustomReport:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/6readanno_{customfile}.html", customfile=customdbs)
+   message:
+      "Finished generating the custom database reports"
+
+
+rule readAnnoCustomKrona:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/readanno_{customfile}_krona.html", customfile=customdbs)
+   message:
+      "Finished generating the custom databases tax Kronas"
+
+
+rule readAnnoRefData:
+   version: "1.0"
+   input:
+      expand(basedir_db_readanno + "/{dbswithkrona}.{suffix}", dbswithkrona=integrateddbs + customdbs, suffix=["tsv", "dmnd"]),
+      basedir_db_readanno + "/CAZyDB_funkrona.tsv"
+   message:
+      "Created reference data for all read annotation databases"
+
+
+rule readAnno:
+   version: "1.0"
+   input:
+      expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv", dbswithkrona=integrateddbs + customdbs, sample=sample_names)
+   message:
+      "Ran all read annotation steps"
+
+
+rule readAnnoReport:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/6readanno_{dbswithkrona}.html", dbswithkrona=integrateddbs + customdbs)
+   message:
+      "Finished generating the read annotation reports"
+
+
+rule readAnnoKrona:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/readanno_{dbswithkrona}_krona.html", dbswithkrona=integrateddbs + customdbs),
+      basedir_reporting + "/readanno_CAZyDB_funkrona.html"
+   message:
+      "Finished generating the read annotation tax Kronas"

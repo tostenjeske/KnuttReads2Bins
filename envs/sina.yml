@@ -2,6 +2,5 @@ name: sina
 channels:
   - conda-forge
   - bioconda
-  - genomedk
 dependencies:
-  - sina=1.6.0
+  - sina=1.6.1

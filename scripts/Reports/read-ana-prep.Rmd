@@ -9,7 +9,6 @@ output:
 
 ```{r, include=FALSE,message=F}
 suppressPackageStartupMessages(library(data.table))
-if(exists("snakemake")){
   readanno_overview.file = snakemake@input[["readanno_overview"]]
   readanno_tplot.file = snakemake@input[["readanno_toplot"]]
   
@@ -18,7 +17,7 @@ if(exists("snakemake")){
   
   readanno_qctrimming.file = snakemake@input[["readanno_qctrim"]]
   
-  afterbeforetrim.file <- snakemake@input[["readdanno_prep_summary_beforeafter"]]
+  afterbeforetrim.file <- snakemake@input[["readdanno_prep_summary_impact"]]
   
   fastqcreports.readanno = as.data.table(snakemake@params[["readanno_fastqc"]])
   fastqcreports.readanno[,qcreport:=snakemake@input[["readanno_fastqc"]]]
@@ -29,20 +28,19 @@ if(exists("snakemake")){
   
   threads = snakemake@threads
   commonscript.file = snakemake@input[["commons"]]
-}
 
-files = c(readanno_overview.file,readanno_sampled_tplot.file,readanno_sampled_overview.file,readanno_tplot.file,readanno_qctrimming.file,afterbeforetrim.file)
+files = unlist(c(readanno_overview.file,readanno_sampled_tplot.file,readanno_sampled_overview.file,readanno_tplot.file,readanno_qctrimming.file,afterbeforetrim.file))
 
 source(commonscript.file)
 commonOptions(threads)
 
-
-afterbeforetrim = fread(afterbeforetrim.file)
-readanno_overview = fread(readanno_overview.file)
-readanno_tplot = fread(readanno_tplot.file)
-readanno_sampled_overview = fread(readanno_sampled_overview.file)
-readanno_sampled_tplot = fread(readanno_sampled_tplot.file)
-readanno_cut_overview = fread(readanno_qctrimming.file)
+samplenames <- list(sample=snakemake@params[["samples"]])
+afterbeforetrim = readData(afterbeforetrim.file, samplenames)
+readanno_overview = readData(readanno_overview.file, samplenames)
+readanno_tplot = readData(readanno_tplot.file, samplenames)
+readanno_sampled_overview = readData(readanno_sampled_overview.file, samplenames)
+readanno_sampled_tplot = readData(readanno_sampled_tplot.file, samplenames)
+readanno_cut_overview = readData(readanno_qctrimming.file, samplenames)
 
 ```
 
@@ -75,9 +73,9 @@ Row
 ### Quality checked files
 
 ```{r}
-readanno_overview.vis = readanno_overview[,.(sample,readdirection,minReadLen,maxReadLen,reads)]
-readanno_overview.vis = fastqcreports.readanno[readanno_overview.vis,on=c("sample","readdirection")]
-colnam = c(sample="Sample",readdirection="Group",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
+readanno_overview.vis = readanno_overview[,.(sample,read,minReadLen,maxReadLen,reads)]
+readanno_overview.vis = fastqcreports.readanno[readanno_overview.vis,on=c("sample","read")]
+colnam = c(sample="Sample",read="Group",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
 setnames(readanno_overview.vis,names(colnam),colnam)
 datatable(readanno_overview.vis,escape = F)
 ```
@@ -90,8 +88,8 @@ Row
 ### Reads to short after quality trimming
 
 ```{r}
-dat = readanno_cut_overview[,.(too_short=too_short/in_reads*100),by=c("sample","readdirection")]
-ggplotly(ggplot(dat)+ aes(x=readdirection, y=too_short,fill=sample,group=interaction(sample,readdirection)) + geom_bar(stat="identity",position = "dodge") + xlab ("Read group") + ylab("Discarded Reads") + scale_color_brewer(palette = sample_palette)+labs(fill="Sample")+ scale_y_continuous(labels = function(x) paste0(x, "%")))
+dat = readanno_cut_overview[,.(too_short=too_short/in_reads*100),by=c("sample","read")]
+ggplotly(ggplot(dat)+ aes(x=read, y=too_short,fill=sample,group=interaction(sample,read)) + geom_bar(stat="identity",position = "dodge") + xlab ("Read group") + ylab("Discarded Reads") + scale_color_brewer(palette = sample_palette)+labs(fill="Sample")+ scale_y_continuous(labels = function(x) paste0(x, "%")))
 ```
 
 >The number of read pairs discarded by cutadapt, if the plot is empty, no reads were discarded.
@@ -99,8 +97,8 @@ ggplotly(ggplot(dat)+ aes(x=readdirection, y=too_short,fill=sample,group=interac
 ### Basepairs lost due to quality trimming
 
 ```{r}
-dat = readanno_cut_overview[,.(sample,readdirection,qualtrim_bp=as.double(qualtrim_bp/in_bp*1000),readdiscardbploss=as.double((in_bp-out_bp-qualtrim_bp)/in_bp*1000))]
-ggplotly(ggplot(dat) + aes(x=readdirection, y=qualtrim_bp,fill=sample) + geom_bar(stat="identity",position="dodge") + xlab("Read group") + ylab("Basepairs cut")+ scale_color_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "‰"))+labs(fill="Sample"))
+dat = readanno_cut_overview[,.(sample,read,qualtrim_bp=as.double(qualtrim_bp/in_bp*1000),readdiscardbploss=as.double((in_bp-out_bp-qualtrim_bp)/in_bp*1000))]
+ggplotly(ggplot(dat) + aes(x=read, y=qualtrim_bp,fill=sample) + geom_bar(stat="identity",position="dodge") + xlab("Read group") + ylab("Basepairs cut")+ scale_color_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "‰"))+labs(fill="Sample"))
 ```
 
 
@@ -109,7 +107,7 @@ ggplotly(ggplot(dat) + aes(x=readdirection, y=qualtrim_bp,fill=sample) + geom_ba
 ### Basepairs lost due to read discarding
 
 ```{r}
-ggplotly(ggplot(dat) + aes(x=readdirection, y=readdiscardbploss,fill=sample) + geom_bar(stat="identity",position="dodge") + xlab("Read group") + ylab("Basepairs cut")+ scale_color_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "‰"))+labs(fill="Sample"))
+ggplotly(ggplot(dat) + aes(x=read, y=readdiscardbploss,fill=sample) + geom_bar(stat="identity",position="dodge") + xlab("Read group") + ylab("Basepairs cut")+ scale_color_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "‰"))+labs(fill="Sample"))
 ```
 
 
@@ -121,7 +119,7 @@ Row
 ### Read Count
 
 ```{r}
-ggplotly(ggplot(readanno_overview) + aes(x=readdirection, y=reads,fill=sample,group=interaction(sample,readdirection)) + 
+ggplotly(ggplot(readanno_overview) + aes(x=read, y=reads,fill=sample,group=interaction(sample,read)) + 
   geom_bar(stat = "identity",position = "stack")+ scale_fill_brewer(palette = sample_palette) + xlab("Read group") + ylab("Number of Reads")+labs(fill="Sample"))
 ```
 
@@ -131,7 +129,7 @@ ggplotly(ggplot(readanno_overview) + aes(x=readdirection, y=reads,fill=sample,gr
 
 ```{r}
 dat = readanno_tplot[type=="readlength_density" & x>=min(readanno_overview$minReadLen) & x<=max(readanno_overview$maxReadLen),]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The read length in each sample and direction. The plot has been trimmed at the actual min and max read lengths.
@@ -144,7 +142,7 @@ Row
 
 ```{r}
 dat = readanno_tplot[type=="avg_seq_qual_dens",]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The distribution of the average Phred score for the whole reads. This density estimate has not been cut!
@@ -153,7 +151,7 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_
 ### Cycle Quality Scores
 
 ```{r}
-ggplotly(ggplot(readanno_tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","readdirection","x")]) + aes(x=x,y=median,color=sample,linetype=readdirection) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
+ggplotly(ggplot(readanno_tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","read","x")]) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read type
@@ -164,7 +162,7 @@ Row
 ### Read length change
 
 ```{r}
-ggplot(afterbeforetrim) + aes(x=readdirection,lower=quantile25ReadLenChange,upper=quantile75ReadLenChange,middle=medianReadLenChange,ymin=minReadLenChange,ymax=maxReadLenChange,group=interaction(sample,readdirection),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length change in bp")+labs(fill="Sample")+theme(legend.position = "bottom")
+ggplot(afterbeforetrim) + aes(x=read,lower=quantile25ReadLenChange,upper=quantile75ReadLenChange,middle=medianReadLenChange,ymin=minReadLenChange,ymax=maxReadLenChange,group=interaction(sample,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length change in bp")+labs(fill="Sample")+theme(legend.position = "bottom")
 ```
 
 >The change of the read length. The whiskers extend to minimum and maximum value.
@@ -172,7 +170,7 @@ ggplot(afterbeforetrim) + aes(x=readdirection,lower=quantile25ReadLenChange,uppe
 ### Average quality change
 
 ```{r}
-ggplot(afterbeforetrim) + aes(x=readdirection,lower=quantile25AvgQualChange,upper=quantile75AvgQualChange,middle=medianAvgQualChange,ymin=minAvgQualChange,ymax=maxAvgQualChange,group=interaction(sample,readdirection),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Average Sequence Quality change")+labs(fill="Sample")+theme(legend.position = "bottom")
+ggplot(afterbeforetrim) + aes(x=read,lower=quantile25AvgQualChange,upper=quantile75AvgQualChange,middle=medianAvgQualChange,ymin=minAvgQualChange,ymax=maxAvgQualChange,group=interaction(sample,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Average Sequence Quality change")+labs(fill="Sample")+theme(legend.position = "bottom")
 ```
 
 >The change of the average quality (mean of all phred scores for a sequence). The whiskers extend to minimum and maximum value.
@@ -192,9 +190,9 @@ Row
 ### Quality checked and (maybe) sampled files
 
 ```{r}
-readanno_overview.vis = readanno_sampled_overview[,.(sample,readdirection,minReadLen,maxReadLen,reads)]
-readanno_overview.vis = fastqcreports.readanno_sampled[readanno_overview.vis,on=c("sample","readdirection")]
-colnam = c(sample="Sample",readdirection="Group",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
+readanno_overview.vis = readanno_sampled_overview[,.(sample,minReadLen,maxReadLen,reads)]
+readanno_overview.vis = fastqcreports.readanno_sampled[readanno_overview.vis,on=c("sample")]
+colnam = c(sample="Sample",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
 setnames(readanno_overview.vis,names(colnam),colnam)
 datatable(readanno_overview.vis,escape = F)
 ```
@@ -215,7 +213,7 @@ ggplotly(ggplot(readanno_sampled_overview) + aes(x=sample, y=reads,fill=sample,g
 
 ```{r}
 dat = readanno_sampled_tplot[type=="readlength_density" & x>=min(readanno_sampled_overview$minReadLen) & x<=max(readanno_sampled_overview$maxReadLen),]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The read length in each sample and direction. The plot has been trimmed at the actual min and max read lengths.
@@ -227,7 +225,7 @@ Row
 
 ```{r}
 dat = readanno_sampled_tplot[type=="avg_seq_qual_dens",]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The distribution of the average Phred score for the whole reads. This density estimate has not been cut!
@@ -236,7 +234,7 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_
 ### Cycle Quality Scores
 
 ```{r}
-ggplotly(ggplot(readanno_sampled_tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","readdirection","x")]) + aes(x=x,y=median,color=sample,linetype=readdirection) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
+ggplotly(ggplot(readanno_sampled_tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","x")]) + aes(x=x,y=median,color=sample) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read type

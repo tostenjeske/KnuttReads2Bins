@@ -9,40 +9,39 @@ output:
 
 
 ```{r, include=FALSE}
-if(exists("snakemake")){
-  alignedresults.file <- snakemake@input[["classSSUdata"]]
-  taxfield = snakemake@params[["silvatax"]]
-  readanno_sampled_overview.file = snakemake@input[["readanno_sampled_overview"]]
-  commonscript.file = snakemake@input[["commons"]]
-  threads=snakemake@threads
-}
-files = c(alignedresults.file,readanno_sampled_overview.file)
+alignedresults.file <- snakemake@input[["classSSUdata"]]
+taxfield <- snakemake@params[["silvatax"]]
+readanno_sampled_overview.file <- snakemake@input[["readanno_sampled_overview"]]
+commonscript.file <- snakemake@input[["commons"]]
+threads <- snakemake@threads
+samplenames <- list(sample=snakemake@params[["samples"]])
+files <- unlist(c(alignedresults.file,readanno_sampled_overview.file))
 source(commonscript.file)
 commonOptions(threads)
 
-readanno_sampled_overview = fread(readanno_sampled_overview.file)
+readanno_sampled_overview <- readData(readanno_sampled_overview.file, samplenames)
 
-alignedresults <- fread(alignedresults.file)
-alignedresults[,Classified:=ifelse(get(taxfield)!="Unclassified;","Classified","Unclassified")]
+alignedresults <- readData(alignedresults.file, samplenames)
+alignedresults[,Classified:=ifelse(get(taxfield)!="Unclassified;", "Classified", "Unclassified")]
 alignedresults[,identity:=(qwidth-tag.NM)/qwidth*100]
 
 
-tax=tstrsplit(alignedresults[,get(taxfield)],split=";",names = T,fill="Unclassified")
+tax <- tstrsplit(alignedresults[, get(taxfield)], split=";", names = T, fill="Unclassified")
 alignedresults[,(names(tax)):=tax]
 rm(tax)
-taxcols=c("superkingdom","phylum","class","order","family","genus","species")
-setnames(alignedresults,c("V1","V2","V3","V4","V5","V6","V7"),taxcols,skip_absent = T)
-missingcols <- setdiff(taxcols,colnames(alignedresults))
+taxcols <- c("superkingdom", "phylum", "class", "order", "family", "genus", "species")
+setnames(alignedresults,c("V1","V2","V3","V4","V5","V6","V7"), taxcols, skip_absent = T)
+missingcols <- setdiff(taxcols, colnames(alignedresults))
 if(length(missingcols)!=0)
-  alignedresults[,(missingcols):="Unclassified"]
-alignedresults[,taxdepthlist:=apply(.SD,1,function(row)which(row=="Unclassified")),.SD=taxcols]
-alignedresults[sapply(taxdepthlist,length)>0,taxdepthi:=sapply(taxdepthlist,"[[",1)-1]
-alignedresults[taxdepthi==0,taxdepth:="None Classified"]
-alignedresults[taxdepthi!=0,taxdepth:=sapply(taxdepthi,function(i)taxcols[i])]
-alignedresults[sapply(taxdepthlist,length)==0,taxdepth:=last(taxcols)]
+  alignedresults[, (missingcols):="Unclassified"]
+alignedresults[, taxdepthlist:=apply(.SD, 1, function(row)which(row=="Unclassified")), .SD=taxcols]
+alignedresults[sapply(taxdepthlist,length)>0, taxdepthi:=sapply(taxdepthlist, "[[", 1)-1]
+alignedresults[taxdepthi==0, taxdepth:="None Classified"]
+alignedresults[taxdepthi!=0, taxdepth:=sapply(taxdepthi, function(i)taxcols[i])]
+alignedresults[sapply(taxdepthlist, length)==0, taxdepth:=last(taxcols)]
 
 
-taxdata  = alignedresults[,.N,by=c("sample",taxcols)]
+taxdata <- alignedresults[,.N,by=c("sample",taxcols)]
 ```
 
 Overview
@@ -135,7 +134,7 @@ ggplotly(ggplot(depth)+aes(x=sample,y=taxdepth,fill=rel) + geom_raster()+scale_f
 ### Subject diversity
 
 ```{r}
-hits = alignedresults[,.N,by=c("sample","rid")]
+hits = alignedresults[,.N,by=c("sample","sname")]
 hits = hits[,rel:=N/sum(N)*100,by=sample]
 ggplot(hits) + aes(y=rel,x=sample,fill=sample) + geom_boxplot() + scale_fill_brewer(palette = sample_palette) +xlab("Sample") + ylab("Percentage of total rRNA reads") +scale_y_continuous(labels = function(x) paste0(x, "%"))+ theme(legend.position = "bottom") + labs(fill="Sample")
 ```

@@ -3,7 +3,7 @@
 ##
 ## FASTQ_Comp_Data.R - Compare the input and output of a FASTQ step
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # Takes two FASTQ files and tries to find the matching entries (same id)
 # and reports changes in average quality,length and entry count.

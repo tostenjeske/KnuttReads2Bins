@@ -3,7 +3,7 @@
 ##
 ## FASTQ_Data.R - Generate plotable data from a FASTQ file
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # Outputs on overview and a detail file
 #

@@ -1,44 +1,55 @@
 ##
 ## Snakefile_4Assemble - Rules for assembly
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # This Snakefile produces the assembly from the reads and produces data
 # from this assembly like coverage and classification.
 
+localrules: bandage_info_kmer, covdata_sample, bandage_info_sample
+
 # Assembly results
 basedir_assembly = config["output_dir"]+"/Assembly"
+basedir_bench_assembly = basedir_bench + "/Assembly"
+basedir_data_assembly = basedir_data + "/Assembly"
 
 
 # Get the files for the assembly
 # Either the trimmed or untrimmed merged and unmerged reads
 def reads_for_assembly(w):
    trim_adapters = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
-   R1 = expand(rules.merge_paired_reads.output.unmergedreads_R1,
-               sample="{sample}",trimmed=trim_adapters)
-   R2 = expand(rules.merge_paired_reads.output.unmergedreads_R2,
-               sample="{sample}",trimmed=trim_adapters)
-   merged = expand(rules.merge_paired_reads.output.mergedreads,
-               sample="{sample}",trimmed=trim_adapters)
-   return dict(zip(["R1","R2","merged"],[R1,R2,merged]))
+   R1 = expand(merge_res_file + "unmgd_R1.fastq.gz",
+               sample="{sample}", trimmed=trim_adapters)
+   R2 = expand(merge_res_file + "unmgd_R2.fastq.gz",
+               sample="{sample}", trimmed=trim_adapters)
+   merged = expand( merge_res_file + "merged.fastq.gz",
+               sample="{sample}", trimmed=trim_adapters)
+   return dict(zip(["R1","R2","merged"], [R1,R2,merged]))
+
 
 # Run the assembly for one sample
 rule megahit_assembly:
+   version: "1.0"
    input:
       unpack(reads_for_assembly)
    params:
-      outdir = basedir_assembly+"/megahit/{sample}",
+      outdir = basedir_assembly + "/MEGAHIT/{sample}",
    output:
-      contigs = basedir_assembly+"/megahit/{sample}/final.contigs.fa",
-      intermediates = directory(basedir_assembly+
-                                "/megahit/{sample}/intermediate_contigs")
+      contigs = basedir_assembly + "/MEGAHIT/{sample}/final.contigs.fa",
+      intermediates = directory(basedir_assembly +
+                                "/MEGAHIT/{sample}/intermediate_contigs")
    log:
-      basedir_assembly+"/megahit/{sample}_megahit.log",
+      basedir_assembly + "/MEGAHIT/{sample}_megahit.log"
+   benchmark:
+      basedir_bench_assembly + "/MEGAHIT_{sample}.tsv"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      "envs/KnuttReads2Bins.yml"
+   threads:
+      16
    resources:
-      mem_mb = 300*1000
+      mem_mb = 160*1000
+   message:
+      "Assembling {wildcards.sample} with MEGAHIT"
    shell: 
         ("rm -fr {params.outdir} && megahit -1 {input.R1} -2 {input.R2} "
          "-r {input.merged} -o {params.outdir} "
@@ -46,38 +57,67 @@ rule megahit_assembly:
          "-t {threads} --min-contig-len {config[min_contiglen]} "
          "{config[megahit_options]} &> {log}")
 
+
 # Generate fastg for an assembly step
 rule megahit_fastg:
+   version: "1.0"
    input:
       rules.megahit_assembly.output.intermediates
    params:
-      file=rules.megahit_assembly.output.intermediates+"/k{kmer}.contigs.fa"
+      file = rules.megahit_assembly.output.intermediates + "/k{kmer}.contigs.fa"
    output:
-      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.fastg"
+      basedir_assembly + "/Graphs/{sample}_k{kmer}_graph.fastg"
+   benchmark:
+      basedir_bench_assembly + "/graph_{sample}_k{kmer}.tsv"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating graph file for {wildcards.sample} {wildcards.kmer}-mers"
    shell:
-      ("megahit_toolkit contig2fastg {wildcards.kmer} {params.file} > {output}")
+      "megahit_toolkit contig2fastg {wildcards.kmer} {params.file} > {output}"
+
 
 # Generate Bandage info file
-rule bandage_info:
+rule bandage_info_kmer:
+   version: "1.0"
    input:
       rules.megahit_fastg.output
    output:
-      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.tsv"
+      temp(basedir_data_assembly + "/{sample}_assembly_graph_k{kmer}.tsv")
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Producing info for {wildcards.sample} {wildcards.kmer}-mers"
    shell:
-      "Bandage info {input} --tsv > {output}"
+      "Bandage info {input} --tsv | scripts/DataExtraction/combineBandageInfoFiles.py > {output}"
+
+
+rule bandage_info_sample:
+   version: "1.0"
+   input:
+      files = expand(basedir_data_assembly + "/{sample}_assembly_graph_k{kmer}.tsv", kmer=config["kmer_sizes_graph"], allow_missing=True)
+   params:
+      colnames = ["k"],
+      vals = [str(i) for i in config["kmer_sizes_graph"]]
+   output:
+      out = basedir_data_assembly + "/{sample}_assembly_graph.tsv"
+   message:
+      "Combining kmer graph data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
 
 # Generate Bandage image
 rule bandage_image:
+   version: "1.0"
    input:
       rules.megahit_fastg.output
    output:
-      basedir_assembly+"/graphs/{sample}/{sample}_k{kmer}.png"
+      basedir_assembly + "/Graphs/{sample}_k{kmer}_graph.png"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Producing image for {wildcards.sample} {wildcards.kmer}-mers"
    shell:
       "Bandage image {input} {output} --height 7680"
 
@@ -94,26 +134,32 @@ def trimmed_or_untrimmed_pair_map(w):
 
 # Map reads to the assembly
 rule map_reads:
+   version: "1.0"
    input:
       unpack(trimmed_or_untrimmed_pair_map)
-   output:
-      sam=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.sam",
-      bam=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.bam",
-      bai=basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.bam.bai",
-   log:
-      basedir_assembly+"/readmapping/{sample}/{sample}_readmapping.log"
    params:
       # Same as in the metabat2 paper script
       # https://bitbucket.org/berkeleylab/metabat/src/master/MetaBAT2PaperSupplementaryScripts/runBBmap.sh
       # The rcs (requirecorrectstrand) is discussable
       ("local=t kbp=f minhits=2 minratio=0.8 maxindel=50 rcs=f usemodulo=t mdtag=t ")
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
-   shadow:
-      "minimal"
-   threads: 15
+   output:
+      sam = basedir_assembly + "/Readmapping/{sample}/{sample}_readmapping.sam",
+      bam = basedir_assembly + "/Readmapping/{sample}/{sample}_readmapping.bam",
+      bai = basedir_assembly + "/Readmapping/{sample}/{sample}_readmapping.bam.bai",
+   log:
+      basedir_assembly + "/Readmapping/{sample}/{sample}_readmapping.log"
+   benchmark:
+      basedir_bench_assembly + "/read_mapping_{sample}.tsv"
+   threads:
+      16
    resources:
       mem_mb = 16*1000
+   shadow:
+      "minimal"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Mapping reads to the {wildcards.sample} assembly"
    shell:
       ("{{ bbwrap.sh -Xmx{resources.mem_mb}M ref={input.ref} in={input.R1} "
        "in2={input.R2} out={output.sam} t={threads} {params} "
@@ -121,107 +167,260 @@ rule map_reads:
        "samtools sort {output.sam} > {output.bam} && "
        "samtools index {output.bam} ; }} &> {log}")
 
+
 # Calculate assembly coverage and extract unmapped single end and paired end reads
 rule cal_map_cov:
+   version: "1.0"
    input:
       sam = rules.map_reads.output.sam
    output:
-      cov = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_cov.tsv",
-      cov_sum = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_cov.log",
-      unmappedsp = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_merged.fastq.gz",
-      unmappedR1 = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_R1.fastq.gz",
-      unmappedR2 = basedir_assembly+"/readmapping/{sample}/{sample}_pileup_unmapped_R2.fastq.gz"
+      cov = temp(basedir_data_assembly + "/{sample}_cov_pileup_details_temp.tsv"),
+      cov_sum = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_cov.log",
+      unmappedsp = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_unmapped_merged.fastq.gz",
+      unmappedR1 = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_unmapped_R1.fastq.gz",
+      unmappedR2 = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_unmapped_R2.fastq.gz"
+   benchmark:
+      basedir_bench_assembly + "/pileup_{sample}.tsv"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running pileup of mapped reads for {wildcards.sample}"
    shell:
       ("pileup.sh in={input.sam} out={output.cov} &> {output.cov_sum} && "
        "samtools view -u -f4 {input.sam} | samtools bam2fq -s {output.unmappedsp} - | "
-       "reformat.sh in=stdin.fq int=t out1={output.unmappedR1} out2={output.unmappedR2}")
+       "reformat.sh in=stdin.fq int=t out1={output.unmappedR1} out2={output.unmappedR2} &> /dev/null")
+
+
+# Convert coverage statistics to data frame
+rule covdata_sample:
+   version: "1.0"
+   input:
+      log = rules.cal_map_cov.output.cov_sum,
+      details = rules.cal_map_cov.output.cov,
+      seq = lambda w: trimmed_or_untrimmed_pair_map(w)["ref"]
+   output:
+      summary = basedir_data_assembly + "/{sample}_cov_pileup_summary.tsv",
+      details = basedir_data_assembly + "/{sample}_cov_pileup_details.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Extracting coverage data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/bbcoverageParser.R"
+
+
+# Calculate the depth for metabat using its depth tool
+rule metabat_depth:
+   version: "1.0"
+   input:
+      contigs = rules.megahit_assembly.output.contigs,
+      bam = rules.map_reads.output.bam,
+      bai = rules.map_reads.output.bai
+   output:
+      depth = basedir_assembly + "/Readmapping/{sample}/{sample}_jgi_summarize_depth.tsv"
+   log:
+      basedir_assembly + "/Readmapping/{sample}/{sample}_jgi_summarize_depth.log"
+   conda:
+      "envs/KnuttReads2Bins.yml" 
+   message:
+      "Running jgi_summarize_bam_contig_depths of mapped reads for {wildcards.sample}"
+   shell:
+      ("jgi_summarize_bam_contig_depths --outputDepth {output.depth} "
+       "--referenceFasta {input.contigs} {input.bam} &> {log}")
+
+
+# Remove the BAM file specific columns from the jgi_depth files
+rule jgi_depthdata_sample:
+   version: "1.0"
+   input:
+      dat = rules.metabat_depth.output,
+      seq = rules.metabat_depth.input.contigs
+   output:
+      basedir_data_assembly + "/{sample}_cov_jgi_details.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Removing file info from jgi_summarize_bam_contig_depths for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/reformatJGIDepth.R"
+
 
 # Construct SILVA database for metaquast:
-rule metaquast_silva:
-   input:
-      seqs = rules.downlaod_ssu_fasta.output,
-   params:
-      base = basedir_dbs + "/MetaQUAST/SILVA/silva"
+rule metaquast_install:
+   version: "1.0"
    output:
-      files = expand(basedir_dbs + "/MetaQUAST/SILVA/silva.{ext}", ext=["nhr","nin","nsq"])
+      directory(basedir_dbs + "/MetaQUAST/")
    log:
-      basedir_dbs + "/MetaQUAST.flag"
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      basedir_dbs + "/MetaQUAST.log"
+   benchmark:
+      basedir_bench_assembly + "/metaquast_install.tsv"
    threads:
-      30
+      16
+   shadow:
+      "minimal"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Installing MetaQUAST"
    shell:
-      "makeblastdb -in {input} -dbtype nucl -out {params.base} &> {log}"
+      "{{ git clone --branch quast_5.0.2 https://github.com/ablab/quast.git {output} && {output}/install_full.sh ; }} &> {log}"
+
 
 # Run metaquast
 rule metaquast_sample:
+   version: "1.0"
    input:
-      rules.metaquast_silva.output,
-      contigs=rules.megahit_assembly.output.contigs,
-      sam=rules.map_reads.output.sam,
+      install = basedir_dbs + "/MetaQUAST",
+      contigs = rules.megahit_assembly.output.contigs,
+      sam = rules.map_reads.output.sam,
    params:
-      basedir = basedir_assembly+"/metaquast/{sample}/{sample}_metaquast",
-      silva = rules.metaquast_silva.params.base
+      basedir = basedir_assembly + "/MetaQUAST/{sample}/{sample}_metaquast",
    output:
-      report=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/report.html",
-      tsv=basedir_assembly+"/metaquast/{sample}/{sample}_metaquast/transposed_report.tsv",
+      report = basedir_reporting + "/MetaQUAST_{sample}.html",
+      tsv = basedir_data_assembly + "/{sample}_metaquast.tsv",
    log:
-      basedir_assembly+"/metaquast/{sample}_metaquast.log"
-   threads: 15
-   resources:
-      entrez=1
+      basedir_assembly + "/MetaQUAST/{sample}_metaquast.log"
+   benchmark:
+      basedir_bench_assembly + "/metaquast_{sample}.tsv"
+   threads: 
+      16
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
    shell:
-      ("metaquast.py -o {params.basedir} -m {config[min_contiglen]} "
+      ("{input.install}/metaquast.py -o {params.basedir} -m {config[min_contiglen]} "
       "--circos -f {input.contigs} --rna-finding -t {threads} "
-      "--blast-db {params.silva} "
-      "--max-ref-number {config[quast_noofrefs]} --sam {input.sam} &> {log}")
+      "--max-ref-number {config[quast_noofrefs]} --sam {input.sam} &> {log} && "
+      "mv {params.basedir}/report.html {output.report} && mv {params.basedir}/transposed_report.tsv {output.tsv}")
+
+
+rule sourmash_contigs:
+   version: "1.0"
+   input:
+      rules.megahit_assembly.output.contigs
+   output:
+      basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_k{k}.sig"
+   log:
+      basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_k{k}.log"
+   benchmark:
+      basedir_bench_assembly + "/sourmash_contigs_k{k}_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Calculating sourmash {wildcards.k}-mer hashes for the contigs from {wildcards.sample}" 
+   shell:
+      "sourmash compute -k {wildcards.k} --track-abundance --scaled {config[sourmash_scaled]} --seed 42 -f -o {output} {input} &> {log}"
+
+
+rule sourmash_contigs_describe:
+   version: "1.0"
+   input:
+      expand(basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True)
+   output:
+      basedir_data_assembly + "/{sample}_contigs_sourmash_signature.tsv"
+   log:
+      basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_descr.log"
+   benchmark:
+      basedir_bench_assembly + "/sourmash_contigs_description_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Describing sourmash signature for the contigs from {wildcards.sample}" 
+   shell:
+      "sourmash sig describe --csv {output} {input} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+# Run the LCA summarization
+rule sourmash_contigs_lca_summarize:
+   version: "1.0"
+   input:
+      sig = expand(basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True),
+      db = basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   output:
+      basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv"
+   log:
+      basedir_assembly + "/sourmash/{sample}/{sample}_contigs_sourmash_lca.log"
+   benchmark:
+       basedir_bench_assembly + "/sourmash_contigs_lca_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running sourmash LCA analysis for the contigs from {wildcards.sample}" 
+   shell:
+      "sourmash lca summarize --db {input.db} --query {input.sig} -o {output} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+# Transform to krona data file
+rule sourmash_contig_lca_summarize_krona:
+   version: "1.0"
+   input:
+      basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv"
+   output:
+      temp(basedir_data_assembly + "/{sample}_contigs_sourmash_lca_krona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Converting Sourmash contig LCA data into the Krona format for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/sourmashSummaryToKrona.R"
+
 
 # Prepare CAT/BAT database files
 rule index_cat_bat:
+   version: "1.0"
    input:
       rules.download_ncbi_tax.output,
       rules.download_ncbi_prot_acc_taxmap.output.ori
    params:
       taxdir = rules.download_ncbi_tax.params.dir
    output:
-      directory(basedir_dbs+"/CATBAT")
+      directory(basedir_dbs + "/CATBAT")
    log:
-      basedir_dbs+"/CATBAT.log"
+      basedir_dbs + "/CATBAT.log"
+   benchmark:
+      basedir_bench_assembly + "/catbat_db.tsv"
+   threads:
+      32
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 30
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Preparing CAT/BAT reference data"
    shell:
       ("CAT prepare --existing -n {threads} -d {output} "
        "-t {params.taxdir} --no_log &> {log} && rm {output}/*.nr.gz")
 
+
 # Classify the contigs
 rule classify_contigs:
+   version: "1.0"
    input:
       rules.index_cat_bat.input,
       contigs = rules.megahit_assembly.output.contigs,
       db = rules.index_cat_bat.output,
    params:
       taxdir = rules.download_ncbi_tax.params.dir,
-      prefix = basedir_assembly+"/contig_classification/{sample}/{sample}"
+      prefix = basedir_assembly + "/CAT/{sample}/{sample}"
    output:
-      expand(basedir_assembly+"/contig_classification/{{sample}}/{{sample}}.{file}",
-             file=["ORF2LCA.txt","contig2classification.txt","predicted_proteins.faa",
-                   "alignment.diamond","predicted_proteins.gff"])
+      expand(basedir_assembly + "/CAT/{{sample}}/{{sample}}.{file}",
+             file=["ORF2LCA.txt", "contig2classification.txt", "predicted_proteins.faa",
+                   "alignment.diamond", "predicted_proteins.gff"])
    log:
-      basedir_assembly+"/contig_classification/{sample}/{sample}_CAT.log"
+      basedir_assembly + "/CAT/{sample}/{sample}_CAT.log"
+   benchmark:
+      basedir_bench_assembly + "/cat_{sample}.tsv"
+   threads:
+      16
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 8
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running CAT for {wildcards.sample}, meow"
    shell:
       ("CAT contigs -c {input.contigs} -d {input.db} -t {params.taxdir} "
        "-o {params.prefix} --no_log -n {threads} --force &> {log}")
 
+
 # Add names to a CAT/BAT file
 rule add_names_catbat:
+   version: "1.0"
    input:
       rules.index_cat_bat.input,
       data = "{base}.{type}.txt"
@@ -230,9 +429,128 @@ rule add_names_catbat:
    output:
       "{base}.{type}.named.txt"
    wildcard_constraints:
-      type="ORF2LCA|contig2classification|bin2classification"
+      type = "ORF2LCA|contig2classification|bin2classification"
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Adding tax names to CAT output {input.data}"
    shell:
       "CAT add_names -i {input.data} -o {output} -t {params.taxdir} --only_official"
-   
+
+
+rule formatcat:
+   version: "1.0"
+   input:
+      cat = basedir_assembly + "/CAT/{sample}/{sample}.contig2classification.named.txt",
+      seq = rules.classify_contigs.input.contigs
+   output:
+      dat = basedir_data_assembly + "/{sample}_contigs_cat.tsv",
+      krona = temp(basedir_data_assembly + "/{sample}_contigs_cat_krona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Formatting CAT output from {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/formatCATData.R"
+
+
+rule catKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_assembly + "/{sample}_contigs_cat_krona.tsv", sample=sample_names),
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_assembly + "/{sample}_contigs_cat_krona.tsv", sample=sample_names), sample_names)]
+   output:
+      basedir_reporting + "/CAT_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating CAT Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+rule assemblySourmashKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_assembly + "/{sample}_contigs_sourmash_lca_krona.tsv", sample=sample_names),
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_assembly + "/{sample}_contigs_sourmash_lca_krona.tsv", sample=sample_names), sample_names)]
+   output:
+      basedir_reporting + "/sourmash_contig_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating Sourmash contig Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"
+
+
+# Create assembly report
+rule assemblyReport:
+   version: "1.0"
+   input:
+      metaquast = expand(basedir_data_assembly + "/{sample}_metaquast.tsv", sample=sample_names),
+      covdetails = expand(basedir_data_assembly + "/{sample}_cov_pileup_details.tsv", sample=sample_names),
+      covsum = expand(basedir_data_assembly + "/{sample}_cov_pileup_summary.tsv", sample=sample_names),
+      jgicovdetails = expand(basedir_data_assembly + "/{sample}_cov_jgi_details.tsv", sample=sample_names),
+      lca = expand(basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv", sample=sample_names),
+      sig = expand(basedir_data_assembly + "/{sample}_contigs_sourmash_signature.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names
+   output:
+      basedir_reporting + "/7assembly.html"
+   benchmark:
+      basedir_bench_assembly + "/assembly_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Created assembly report"
+   script:
+      "scripts/Reports/assembly.Rmd"
+
+
+rule assembly:
+   version: "1.0"
+   input:
+      expand(basedir_assembly + "/MEGAHIT/{sample}/final.contigs.fa", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_assembly_graph.tsv", sample=sample_names),
+      expand(basedir_assembly + "/Graphs/{sample}_k{kmer}_graph.png", sample=sample_names, kmer=config["kmer_sizes_graph"]),
+      expand(basedir_data_assembly + "/{sample}_cov_pileup_summary.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_metaquast.tsv", sample=sample_names),
+   message:
+      "Assembled all samples"
+
+
+rule assemblySourmash:
+   version: "1.0"
+   input:
+      expand(basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_contigs_sourmash_signature.tsv", sample=sample_names),
+   message:
+      "Ran Sourmash for the assembly"
+
+
+rule assemblyRefData:
+   version: "1.0"
+   input:
+      basedir_dbs + "/Sourmash/" + sourmash_lca_name,
+      basedir_dbs + "/MetaQUAST"
+   message:
+      "Reference data for assembly analysis generated"
+
+rule catRefData:
+   version: "1.0"
+   input:
+      basedir_dbs + "/CATBAT"
+   message:
+      "Prepared CAT reference data"
+
+
+rule cat:
+   version: "1.0"
+   input:
+      expand(basedir_data_assembly + "/{sample}_contigs_cat.tsv", sample=sample_names),
+   message:
+      "Prepared CAT sample data"

@@ -1,66 +1,99 @@
 ##
 ## Snakefile_1PrepareReads - Rules for read trimming and merging
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # It contains the FASTQC call, adapter trimming, merging, read quality
 # trimming for classification/annotation
 
 import os
 
-# Input function to get both paired reads
+localrules: rawseqdata_sample, merge_data_sample, trimseqdata_sample, trimseqcompdata_sample, mergeseqdata_sample, classification_fastq, sampled_classification_fastq, qtrseqdata_sample, mask_data_sample_read, mask_data_sample, qualitytrim_data_sample, combine_qual_mask_kmer_sample, qtrseqcompdata_sample
+
 paired_reads_input = lambda w: paired_reads[w["sample"]]
-# Input function for a single reads file
 single_reads_input = lambda w: paired_reads_input(w)[w["read"]]
 
-
-
 # The output directory for this step
-basedir_prep = config["output_dir"]+"/ReadPrep"
+basedir_prep = config["output_dir"] + "/ReadPrep"
+basedir_bench_prep = basedir_bench + "/ReadPrep"
+basedir_data_prep = basedir_data + "/ReadPrep"
+basedir_report_prep = basedir_reporting+ "/ReadPrep"
 
-fastq_file_regex = "(.+)\\.(:?fastq|fq)(?:\\.gz)?"
+raw_seqdata = basedir_data_prep + "/RawSequenceData"
 
-# Templates
-rawqc = basedir_prep + "/Reads_QC/"
-trimming_templ = basedir_prep + "/Adapter_Trimming/{sample}/{sample}_"
-merge_res_file = basedir_prep+"/Merging_{trimmed}/{sample}/{sample}_{trimmed}_"
-classtempl = basedir_prep+"/ClassificationReads/{sample}/{sample}_{trimmed}_classreads_"
+trimming_res = basedir_prep + "/AdapterTrimmed/{sample}/{sample}_"
+trimming_data = basedir_data_prep + "/AdapterTrimmed"
+trimming_seqdata = trimming_data
 
+merge_res_file = basedir_prep + "/Merging_{trimmed}/{sample}/{sample}_merge_{trimmed}_"
+merge_data = basedir_data_prep + "/Merging_{trimmed}"
+merge_data_file = merge_data + "/{sample}_merge_{trimmed}_"
+merging_seqdata = merge_data
 
-adpt_poss = ["tr","untr"]
-smpld_poss = ["smpld","unsmpld"]
+analysis_res_file = basedir_prep + "/AnalysisReads_{trimmed}/{sample}/{sample}_analysis_{trimmed}_"
+# analysis_data_file = basedir_data_prep + 
+analysis_seqdata = basedir_data_prep + "/AnalysisReads_{trimmed}"
+
+sampling_size = "unsmpld" if config["read_sampling"]==0 else config["read_sampling"]
+adpt_poss = ["tr", "untr"]
+smpld_poss = ["smpld", "unsmpld"]
+merge_reads = ["merged", "unmgd_R1", "unmgd_R2"]
+qtr_reads = ["merged", "unmgd_R1"]
+seqdats = ["overview", "plotdata"]
+
+smpld = smpld_poss[0] if config["read_sampling"]>0 else smpld_poss[1]
+trim_adapters = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
+trimmed_val = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
+
+wildcard_constraints:
+   merge_read = "|".join(merge_reads),
+   qtr_read = "|".join(qtr_reads),
+   seqdat = "|".join(seqdats),
+   sampling_size = str(sampling_size)
+
+##
+## Raw sequencing data
+##
 
 # Predicts the filename given by FASTQC
 # Uses the {sample} wildcard
 # Outputs a list, first html and then zip file
+fastq_file_regex = "(.+)\\.(:?fastq|fq)(?:\\.gz)?"
 def predict_raw_fastqc_name(wildcards):
    # No directory
    base = os.path.basename(single_reads_input(wildcards))
    # The base filename without the fastq/fq(.gz)
    base = re.search(fastq_file_regex,base, re.IGNORECASE)
    base = base.group(1)
-   template = rawqc + "{sample}/{base}_fastqc.{suffix}"
+   template = basedir_reporting + "/FastQC/{base}_fastqc.{suffix}"
    return expand(template,sample=wildcards["sample"], base=base, suffix=["html","zip"])
 
+
 # FASTQC report for a single raw read file
-rule fastqc_raw_file:
+rule fastqc_sample_read:
+   version: "1.0"
    input:
       single_reads_input
    params:
-      out_dir = rawqc + "{sample}",
+      out_dir = basedir_reporting + "/FastQC/",
       expected_filename = predict_raw_fastqc_name
    output:
-      expand(rawqc + "{sample}/{sample}_{read}.{suffix}", suffix=["html","zip"], allow_missing=True)
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
+      expand(basedir_reporting + "/FastQC/raw_{sample}_{read}_fastqc.{suffix}", suffix=["html","zip"], allow_missing=True)
+   benchmark:
+      basedir_bench_prep + "/raw_fastqc_{sample}_{read}.tsv"
    threads:
-      2
+      4
    resources:
       mem_mb = lambda wildcards, threads: threads * 250
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running FASTQC for {wildcards.sample} {wildcards.read}"
    shell:
       ("fastqc -q -o {params.out_dir} -t {threads} {input} && "
        "mv {params.expected_filename[0]} {output[0]} && "
        "mv {params.expected_filename[1]} {output[1]}")
+
 
 # FASTQC Reports for any produced .fastq.gz file
 rule fastqc_any_file:
@@ -68,16 +101,21 @@ rule fastqc_any_file:
       "{file}.fastq.gz"
    params:
       out_dir = lambda w:os.path.dirname(w.file),
+   wildcard_constraints:
+      file = "^(?!" + basedir_reporting + "/FastQC/).+"
    output:
-      expand("{{file}}_fastqc.{suffix}",suffix=["html","zip"],allow_missing=True)
-   conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads:
-      2
+      temp(expand("{{file}}_fastqc.{suffix}",suffix=["html","zip"],allow_missing=True))
    resources:
       mem_mb = lambda wildcards, threads: threads * 250
+   threads:
+      4
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Producing FASTQC files for {wildcards.file}"
    shell:
       "fastqc -q -o {params.out_dir} -t {threads} {input}"
+
 
 # A helper function to return the FASTQC html report location
 # Handles the different rules for user provided and
@@ -86,14 +124,92 @@ def fastQC_for_file(file):
    # Test if the file matches the user read pattern
    glob_res = glob_wildcards(paired_readfile_pattern,files=[file])
    if glob_res.sample:
-      res = expand(rules.fastqc_raw_file.output[0],
+      res = expand(rules.fastqc_sample_read.output[0],
                    sample=glob_res.sample,read=glob_res.read)
    else:
       res = re.search(fastq_file_regex,file).group(1)+"_fastqc.html"
    return res
 
+
+# Construct the sequence data file for the raw fastq files
+rule rawseqdata_sample_read:
+   version: "1.0"
+   input:
+      reads = single_reads_input
+   output:
+      overview = temp(raw_seqdata + "/{sample}_{read}_raw_seqdat_overview.tsv"),
+      toplot = temp(raw_seqdata + "/{sample}_{read}_raw_seqdat_plotdata.tsv"),
+   benchmark:
+      basedir_bench_prep + "/raw_seqdata_{sample}_{read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Calculating sequencing data for {wildcards.sample} {wildcards.read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Data.R" 
+
+
+# Combine sequence data for both reads
+rule rawseqdata_sample:
+   version: "1.0"
+   input:
+      files = expand(raw_seqdata + "/{{sample}}_{read}_raw_seqdat_{{seqdat}}.tsv",read=reads)
+   params:
+      colnames = ["read"],
+      vals = reads
+   output:
+      out = raw_seqdata + "/{sample}_raw_seqdat_{seqdat}.tsv"
+   message:
+      "Combining R1+R2 sequence data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Create sequence data files
+rule rawSeqData:
+   input:
+      expand(raw_seqdata + "/{sample}_raw_seqdat_{seqdat}.tsv", sample=sample_names, seqdat=seqdats),
+   message:
+      "Sequence data for user provided files generated"
+
+# Copy all FASTQC reports:
+rule rawFASTQC:
+   input:
+      expand(basedir_reporting + "/FastQC/raw_{sample}_{read}_fastqc.html", sample=sample_names, read=reads)
+   message:
+      "Raw FASTQC reports generated"
+
+# Create raw sequence report
+rule rawReport:
+   version: "1.0"
+   input:
+      overview = expand(raw_seqdata + "/{sample}_raw_seqdat_overview.tsv", sample=sample_names),
+      toplot = expand(raw_seqdata + "/{sample}_raw_seqdat_plotdata.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+      fastqc = expand(basedir_reporting + "/FastQC/raw_{sample}_{read}_fastqc.html", sample=sample_names, read=reads)
+   params:
+      samples = sample_names,
+      samples_reads =  samples_names_reads
+   output:
+      basedir_reporting + "/1raw-reads.html"
+   benchmark:
+      basedir_bench_prep + "/raw_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating raw sequence data report"
+   script:
+      "scripts/Reports/raw-reads.Rmd"
+
+
+##
+## Adapter/Quality trimming, Merging
+##
+
+
 # Run adapter trimming on the paired reads
 rule cutadapt_paired_reads:
+   version: "1.0"
    input:
       unpack(lambda wildcards:paired_reads[wildcards["sample"]])
    params:
@@ -104,21 +220,132 @@ rule cutadapt_paired_reads:
       fixR1 = config["fixcut_R1"],
       fixR2 = config["fixcut_R2"],
    output: 
-      still_paired_R1 = trimming_templ + "R1_adptr_tr.fastq.gz",
-      still_paired_R2 = trimming_templ + "R2_adptr_tr.fastq.gz",
+      still_paired_R1 = trimming_res + "R1_adptr_tr.fastq.gz",
+      still_paired_R2 = trimming_res + "R2_adptr_tr.fastq.gz",
    log:
-      trimming_templ + "adptr_tr.log"
-   threads: 2
+      trimming_data + "/{sample}_adptr_tr.tsv"
+   benchmark:
+      basedir_bench_prep + "/trim_{sample}.tsv"
+   threads: 8
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Trimming adapters on {wildcards.sample}"
    shell:
       ("cutadapt -u {params.fixR1} -U {params.fixR2} -j {threads} -O {params.adapter_minoverlap} "
        "--minimum-length {params.minlength} -e {params.adapter_error_rate} {params.adapter} --report=minimal "
        "-o {output.still_paired_R1} -p {output.still_paired_R2} {input.R1} {input.R2} &> {log}")
 
+
+# Construct the sequence data file for the trimmed fastq files
+rule trimseqdata_sample_read:
+   version: "1.0"
+   input:
+      reads = trimming_res + "{read}_adptr_tr.fastq.gz",
+   output:
+      overview = temp(trimming_data + "/{sample}_{read}_adptr_tr_seqdat_overview.tsv"),
+      toplot = temp(trimming_data + "/{sample}_{read}_adptr_tr_seqdat_plotdata.tsv"),
+   benchmark:
+      basedir_bench_prep + "/trim_seqdata_{sample}_{read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Calculating trimmed sequencing data for {wildcards.sample} {wildcards.read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Data.R" 
+
+
+# Combine sequence data for both reads
+rule trimseqdata_sample:
+   version: "1.0"
+   input:
+      files = expand(trimming_data + "/{{sample}}_{read}_adptr_tr_seqdat_{{seqdat}}.tsv",read=reads)
+   params:
+      colnames = ["read"],
+      vals = reads
+   output:
+      out = trimming_data + "/{sample}_adptr_tr_seqdat_{seqdat}.tsv"
+   message:
+      "Combining trimmed R1+R2 sequence data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Compare FASTQ file before to after trim
+rule trimseqcompdata_sample_read:
+   version: "1.0"
+   input:
+      before = single_reads_input,
+      after = trimming_res + "{read}_adptr_tr.fastq.gz",
+   output:
+      temp(trimming_data + "/{sample}_{read}_adptr_tr_impact.tsv")
+   benchmark:
+      basedir_bench_prep + "/trim_impact_{sample}_{read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Comparing sequence data before and after trimming for {wildcards.sample} {wildcards.read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Comp_Data.R"  
+
+
+# Combine the comparative files
+rule trimseqcompdata_sample:
+   version: "1.0"
+   input:
+      files = expand(trimming_data + "/{{sample}}_{read}_adptr_tr_impact.tsv", read=reads)
+   params:
+      colnames = ["read"],
+      vals = reads
+   output:
+      out = trimming_data + "/{sample}_adptr_tr_impact.tsv"
+   message:
+      "Combining trimmed R1+R2 trim impact data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Copy a trimmed fastqc file 
+rule copy_trim_fastqc:
+   version: "1.0"
+   input:
+      fastQC_for_file(trimming_res + "{read}_adptr_tr.fastq.gz"),
+   output:
+      basedir_reporting + "/FastQC/trim_{sample}_{read}_fastqc.html"
+   shell:
+      "cp {input} {output}"
+
+
+# Run trimming for all samples:
+rule trim:
+   version: "1.0"
+   input:
+      expand(trimming_res + "R1_adptr_tr.fastq.gz", sample=sample_names)
+   message:
+      "Ran trimming operation"
+
+
+rule trimSeqData:
+   version: "1.0"
+   input:
+      expand(trimming_data + "/{sample}_adptr_tr_seqdat_{seqdat}.tsv", sample=sample_names, seqdat=seqdats),
+      expand(trimming_data + "/{sample}_adptr_tr_impact.tsv", sample=sample_names),
+   message:
+      "Trim sequence data files generated"
+
+
+rule trimFASTQC:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/FastQC/trim_{sample}_{read}_fastqc.html", sample=sample_names, read=reads)
+   message:
+      "FASTQC trim reports generated"
+
+
 # Returns the strictness default, if the config doesn't say otherwise
 def strictness_helper(wildcards): 
     return "" if config["merging_strictness"] == "default" else config["merging_strictness"]+"=T" 
+
 
 # Returns either the trimmed or untrimmed R1/R2 pair depending on 
 # the wildcard value trimmed
@@ -129,26 +356,34 @@ def trimmed_or_untrimmed_pair(w):
    else:
       res = paired_reads[w["sample"]]
    return res
+
+
 # Merge paired raw reads and also paired trimmed reads
 rule merge_paired_reads:
+   version: "1.0"
    input:
       unpack(trimmed_or_untrimmed_pair)
-   output:
-      mergedreads = merge_res_file+"merged.fastq.gz",
-      unmergedreads_R1 = merge_res_file+"unmgd_R1.fastq.gz",
-      unmergedreads_R2 = merge_res_file+"unmgd_R2.fastq.gz",
-      inserts = merge_res_file+"insert_sizes.tsv",
-      adapters = merge_res_file+"adapters.fa",
-   log:
-      merge_res_file+"merge.txt"
    params:
       strictness = strictness_helper,
       trimq = config["qaulity_trimvals"]
-   threads: 2
+   output:
+      mergedreads = merge_res_file + "merged.fastq.gz",
+      unmergedreads_R1 = merge_res_file + "unmgd_R1.fastq.gz",
+      unmergedreads_R2 = merge_res_file + "unmgd_R2.fastq.gz",
+      inserts = merge_data_file + "insert_sizes.tsv",
+      adapters = merge_res_file + "adapters.fa",
+   log:
+      merge_res_file + "merge.log"
+   benchmark:
+      basedir_bench_prep + "/merging_{trimmed}_{sample}.tsv"
+   threads:
+      8
    resources:
       mem_mb = 1000
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Merging reads for {wildcards.sample} ({wildcards.trimmed})"
    shell:
       ("bbmerge.sh -eoom -Xmx{resources.mem_mb}m t={threads} usejni=T "
        "in1={input.R1} in2={input.R2} out={output.mergedreads} "
@@ -156,70 +391,511 @@ rule merge_paired_reads:
        "outinsert={output.inserts} qtrim2=t trimq={params.trimq} "
        "outa={output.adapters} &> {log}")
 
+
+# Get bbmerge merging data
+# This rule needs to use the log file, because some info (adapter count, 
+# ambigous count (A status missing, maybe bug?) isn't in the insert file)
+rule merge_data_sample:
+   version: "1.0"
+   input:
+      log = rules.merge_paired_reads.log,
+      adapter = rules.merge_paired_reads.output.adapters
+   output:
+      out = merge_data_file + "overview.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Parsing merging data for {wildcards.sample} ({wildcards.trimmed})"
+   script:
+      "scripts/DataExtraction/bbmergeParser.R"
+
+
+# Create trimming report
+rule trimReport:
+   version: "1.0"
+   input:
+      raw_overview = rules.rawReport.input.overview,
+      raw_toplot = rules.rawReport.input.toplot,
+      mergedata_untrimmed = expand(merge_data_file + "overview.tsv", trimmed=adpt_poss[1], sample=sample_names),
+      mergedata_trimmed = expand(merge_data_file + "overview.tsv", trimmed=adpt_poss[0], sample=sample_names),
+      trimming_summary = expand(trimming_data + "/{sample}_adptr_tr.tsv", sample=sample_names),
+      trimmed_overview = expand(trimming_data + "/{sample}_adptr_tr_seqdat_overview.tsv", sample=sample_names),
+      trimmed_toplot = expand(trimming_data + "/{sample}_adptr_tr_seqdat_plotdata.tsv", sample=sample_names),
+      trim_summary_impact = expand(trimming_data + "/{sample}_adptr_tr_impact.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+      fastqc = expand(basedir_reporting + "/FastQC/trim_{sample}_{read}_fastqc.html", sample=sample_names, read=reads)
+   params:
+      samples = sample_names,
+      samples_reads =  samples_names_reads,
+      adapters = lambda w: {sample:config["adapter_conf"].get(sample,config["def_adapter_conf"]) for sample in sample_names}
+   output:
+      basedir_reporting + "/2trimming.html"
+   benchmark:
+      basedir_bench_prep + "/trim_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating trimmed sequence data report"
+   script:
+      "scripts/Reports/read-trimming.Rmd"
+
+
+rule mergeseqdata_sample_read:
+   version: "1.0"
+   input:
+      reads = merge_res_file + "{merge_read}.fastq.gz"
+   output:
+      overview = temp(merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_overview.tsv"),
+      toplot = temp(merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_plotdata.tsv"),
+   benchmark:
+      basedir_bench_prep + "/merge_seqdata_{sample}_{trimmed}_{merge_read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Calculating merging ({wildcards.trimmed}) sequencing data for {wildcards.sample} {wildcards.merge_read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Data.R" 
+
+
+# Combine sequence data for both reads
+rule mergeseqdata_sample:
+   version: "1.0"
+   input:
+      files = expand(merging_seqdata + "/{{sample}}_{merge_read}_merge_{trimmed}_seqdat_{{seqdat}}.tsv", merge_read=merge_reads, trimmed="{trimmed}")
+   params:
+      colnames = ["read"],
+      vals = merge_reads
+   output:
+      out = merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_{seqdat}.tsv"
+   message:
+      "Combining merging ({wildcards.trimmed}) sequence data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Copy a merge fastqc file 
+rule copy_merge_fastqc:
+   version: "1.0"
+   input:
+      fastQC_for_file(merge_res_file + "{merge_read}.fastq.gz"),
+   output:
+      basedir_reporting + "/FastQC/merge_{trimmed}_{sample}_{merge_read}_fastqc.html"
+   shell:
+      "cp {input} {output}"
+
+
+
+# Run merging for all samples:
+rule merge:
+   version: "1.0"
+   input:
+      expand(merge_data_file + "overview.tsv", trimmed=adpt_poss, sample=sample_names)
+   message:
+      "Ran merging operation"
+
+rule mergeSeqData:
+   version: "1.0"
+   input:
+      expand(merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_{seqdat}.tsv", trimmed=adpt_poss, sample=sample_names, seqdat=seqdats),
+   message:
+      "Sequence data for the merge files have been produced"
+
+
+rule mergeFASTQC:
+   version: "1.0"
+   input:
+      expand(rules.copy_merge_fastqc.output, sample=sample_names, trimmed=adpt_poss, merge_read=merge_reads),
+   message:
+      "FASTQC reports for the merge results generated"
+
+
+# Create merge report
+rule mergeReport:
+   version: "1.0"
+   input:
+      mergedata_untrimmed = rules.trimReport.input.mergedata_untrimmed,
+      mergedata_trimmed = rules.trimReport.input.mergedata_trimmed,
+      mergdata_trimmed_details = expand(rules.merge_paired_reads.output.inserts, sample=sample_names, trimmed=adpt_poss[0]),
+      merging_trimmed_overview = expand(merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_overview.tsv", sample=sample_names, trimmed=adpt_poss[0]),
+      merging_trimmed_toplot = expand(merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_plotdata.tsv", sample=sample_names, trimmed=adpt_poss[0]),
+      merging_untrimmed_overview = expand(merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_overview.tsv", sample=sample_names, trimmed=adpt_poss[1]),
+      merging_untrimmed_toplot = expand(merging_seqdata + "/{sample}_merge_{trimmed}_seqdat_plotdata.tsv", sample=sample_names, trimmed=adpt_poss[1]),
+      merging_trimmed_fastqc = expand(rules.copy_merge_fastqc.output, sample=sample_names, trimmed=adpt_poss[0], merge_read=merge_reads),
+      merging_untrimmed_fastqc = expand(rules.copy_merge_fastqc.output, sample=sample_names, trimmed=adpt_poss[1], merge_read=merge_reads),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names,
+      merging_trimmed_fastqc = {"sample": [sample for sample in sample_names for _ in merge_reads], "read":[read for _ in sample_names for read in merge_reads]},
+      merging_untrimmed_fastqc = {"sample": [sample for sample in sample_names for _ in merge_reads], "read":[read for _ in sample_names for read in merge_reads]}
+   output:
+      basedir_reporting + "/3read-merging.html"
+   benchmark:
+      basedir_bench_prep + "/merge_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating merging report"
+   script:
+      "scripts/Reports/read-merging.Rmd"
+
+
 # Perform quality trimming on merge results
 rule qualtrim_merge_reads:
+   version: "1.0"
    input:
-      merge_res_file+"{mergeres}.fastq.gz"
-   params:
-      quality = config["classification_qual"],
-      minlength = config["classification_minlen"]
+      merge_res_file + "{qtr_read}.fastq.gz"
    output:
-      merge_res_file+"{mergeres}_qtr.fastq.gz"
+      seq = temp(merge_res_file + "{qtr_read}_qtr.fastq.gz"),
+      cut = temp(merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv"),
    log:
-      mask=merge_res_file+"{mergeres}_mask.log", 
-      cut=merge_res_file+"{mergeres}_qtr.log"
-   wildcard_constraints:
-      mergeres="merged|unmgd_R1"
-   threads: 2
+      mask = merge_res_file + "{qtr_read}_mask.log",
+   benchmark:
+      basedir_bench_prep + "/qtr_{trimmed}_{sample}_{qtr_read}.tsv"
+   threads:
+      4
    resources:
       mem_mb = 16000
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Quality trimming reads for {wildcards.sample} ({wildcards.trimmed}) {wildcards.qtr_read}"
    shell:
       ("bbmask.sh -Xmx{resources.mem_mb}m in={input} out=stdout.fq entropy={config[low_complex_entropy]} "
-       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {params.quality} --report=minimal "
-       "-m {params.minlength} -o {output} - &> {log.cut}")
+       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {config[classification_qual]} --report=minimal "
+       "-m {config[classification_minlen]} -o {output.seq} - &> {output.cut}")
+
+
+# Trim low abundance k-mers
+rule trim_kmers:
+   version: "1.0"
+   input:
+      merge_res_file + "{qtr_read}_qtr.fastq.gz"
+   params:
+      res = "{sample}_merge_{trimmed}_{qtr_read}_qtr.fastq.gz.abundtrim"
+   output:
+      seq = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz",
+      cut = temp(merge_data + "/{sample}_{qtr_read}_kmertr_{trimmed}.tsv"),
+   log:
+      mask = merge_res_file + "{qtr_read}_qtr_kmertr.log",
+   benchmark:
+      basedir_bench_prep + "/kmertr_{trimmed}_{sample}_{qtr_read}.tsv"
+   shadow:
+      "minimal"
+   resources:
+      mem_mb = 4000
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Trimming erroneous k-mers from {wildcards.sample}" 
+   shell:
+      ("trim-low-abund.py -C {config[khmer_abd_cutoff]} -Z {config[khmer_read_trim_cov]} -V -M {resources.mem_mb}M {input} "
+      "--summary-info tsv --gzip &> {log} && mv {params.res} {output.seq} && "
+      "mv $(echo $(date '+trim-low-abund-%Y-%m-%dT')*.info.tsv) {output.cut}")
+
 
 # Combine the merged and unmerged R1 reads into one file
 # R2 is excluded, as it often has the same annotation as R1
 # More sophisticated processing would allow R2 inclusion
 rule classification_fastq:
+   version: "1.0"
    input:
-      expand(rules.qualtrim_merge_reads.output,
-             sample="{sample}",trimmed="{trimmed}",
-             mergeres=["merged","unmgd_R1"])
-   output:
-      classtempl+"unsmpld.fastq.gz"
+      expand(merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz",
+             sample="{sample}", trimmed="{trimmed}",
+             qtr_read=qtr_reads)
    params:
-      classtempl+"unsmpld.fastq"
+      analysis_res_file + "unsmpld.fastq"
+   output:
+      analysis_res_file + "unsmpld.fastq.gz"
    log:
-      classtempl+"unsmpld_concat.log"
+      analysis_res_file + "unsmpld_concat.log"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Concatening quality trimmed R1 and merged reads for {wildcards.sample} ({wildcards.trimmed})"
    shell:
       ("{{ reformat.sh in={input[0]} out=stdout.fastq > {params} && "
        "reformat.sh in={input[1]} out=stdout.fastq >> {params} && "
        "bgzip {params} ;  }} &> {log}")
 
+
 # Sample from the combined file
 # When using R1 and R2 in the future, they should be drawn together
 rule sampled_classification_fastq:
+   version: "1.0"
    input:
       rules.classification_fastq.output
    params:
       seqs = config["read_sampling"]
    output:
-      classtempl+"smpld.fastq.gz"
+      analysis_res_file + "smpld.fastq.gz"
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Sampling reads for {wildcards.sample}"
    shell:
       "seqtk sample -s42 {input} {params.seqs} | bgzip > {output}"
-
 
 
 # Get sampled/all trimmed/untrimmed classification reads
 # Depends on the config
 def classfication_fastq():
-   smpld = smpld_poss[0] if config["read_sampling"]>0 else smpld_poss[1]
-   trim_adapters = adpt_poss[0] if config["adaptertrim"] else adpt_poss[1]
-   return expand(classtempl+"{smpld}.fastq.gz", trimmed=trim_adapters, smpld=smpld, allow_missing=True)
+   return expand(analysis_res_file + "{smpld}.fastq.gz", trimmed=trim_adapters, smpld=smpld, allow_missing=True)[0]
+
+
+rule qtrseqdata_sample_read:
+   version: "1.0"
+   input:
+      reads = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
+   output:
+      overview = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_overview.tsv"),
+      toplot = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_plotdata.tsv"),
+   benchmark:
+      basedir_bench_prep + "/qtr_{trimmed}_seqdata_{sample}_{trimmed}_{qtr_read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Calculating quality trimmed ({wildcards.trimmed}) sequencing data for {wildcards.sample} {wildcards.qtr_read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Data.R" 
+
+
+# Combine sequence data for both reads
+rule qtrseqdata_sample:
+   version: "1.0"
+   input:
+      files = expand(merging_seqdata + "/{{sample}}_qtr_{trimmed}_{qtr_read}_seqdat_{{seqdat}}.tsv", qtr_read=qtr_reads, allow_missing=True)
+   params:
+      colnames = ["read"],
+      vals = qtr_reads
+   output:
+      out = merging_seqdata + "/{sample}_qtr_{trimmed}_seqdat_{seqdat}.tsv"
+   message:
+      "Combining quality trimmed ({wildcards.trimmed}) sequence data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+rule analysis_seqdata_sample:
+   version: "1.0"
+   input:
+      reads = classfication_fastq()
+   output:
+      overview = analysis_seqdata + "/{sample}_analysis_{trimmed}_{sampling_size}_seqdat_overview.tsv",
+      toplot = analysis_seqdata + "/{sample}_analysis_{trimmed}_{sampling_size}_seqdat_plotdata.tsv",
+   benchmark:
+      basedir_bench_prep + "/analysis_{trimmed}_{sampling_size}_seqdata_{sample}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Calculating sequencing data for {wildcards.sample} ({wildcards.trimmed}) analysis reads (Sampling: {wildcards.sampling_size})"
+   script:
+      "scripts/DataExtraction/FASTQ_Data.R" 
+
+
+rule mask_data_sample_read:
+   version: "1.0"
+   input:
+      merge_res_file + "{qtr_read}_mask.log"
+   output:
+      temp(merge_data + "/{sample}_{qtr_read}_masking_{trimmed}.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Parsing masking log for {wildcards.sample} {wildcards.qtr_read} ({wildcards.trimmed})"
+   script:
+      "scripts/DataExtraction/bbmaskParser.R"
+
+
+# Construct read analysis quality trimming data
+rule mask_data_sample:
+   version: "1.0"
+   input:
+      files = expand(merge_data + "/{sample}_{qtr_read}_masking_{trimmed}.tsv", qtr_read=qtr_reads, allow_missing=True)
+   params:
+      colnames = ["read"],
+      vals = qtr_reads
+   output:
+      out = temp(merge_data + "/{sample}_masking_{trimmed}.tsv")
+   message:
+      "Combining masiking data for {wildcards.sample} ({wildcards.trimmed})"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Combine read data
+rule kmertrim_data_sample:
+   version: "1.0"
+   input:
+      files = expand(merge_data + "/{sample}_{qtr_read}_kmertr_{trimmed}.tsv", qtr_read=qtr_reads, allow_missing=True)
+   params:
+      colnames = ["read"],
+      vals = qtr_reads
+   output:
+      out = temp(merge_data + "/{sample}_kmertr_{trimmed}.tsv")
+   message:
+      "Combining kmer trim data for {wildcards.sample} ({wildcards.trimmed})"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Construct read analysis quality trimming data
+rule qualitytrim_data_sample:
+   version: "1.0"
+   input:
+      files = expand(merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv", qtr_read=qtr_reads, allow_missing=True)
+   params:
+      colnames = ["read"],
+      vals = qtr_reads
+   output:
+      out = temp(merge_data + "/{sample}_qual_cutadapt_{trimmed}.tsv")
+   message:
+      "Combining quality trimming data for {wildcards.sample} ({wildcards.trimmed})"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+# Combining masking, quality trimming and kmer trimming data
+rule combine_qual_mask_kmer_sample:
+   version: "1.0"
+   input:
+      mask = merge_data + "/{sample}_masking_{trimmed}.tsv",
+      trim = merge_data + "/{sample}_qual_cutadapt_{trimmed}.tsv",
+      kmer = merge_data + "/{sample}_kmertr_{trimmed}.tsv"
+   output:
+      merge_data + "/{sample}_qtr_{trimmed}.tsv"
+   message:
+      "Combining masking and quality trimming data for {wildcards.sample} ({wildcards.trimmed})"
+   shell:
+      ("temp_file=$(mktemp) && cut --complement -f1 {input.mask} | paste {input.trim} - > $temp_file && "
+      "cut --complement -f1,3,4,5,6 {input.kmer} | paste $temp_file - > {output} && rm $temp_file")
+
+
+# Compare FASTQ file before to after trim
+rule qtrseqcompdata_sample_read:
+   version: "1.0"
+   input:
+      before = merge_res_file + "{qtr_read}.fastq.gz",
+      after = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
+   output:
+      temp(merging_seqdata + "/{sample}_{qtr_read}_qtr_impact.tsv")
+   benchmark:
+      basedir_bench_prep + "/qtr_{trimmed}_impact_{sample}_{qtr_read}.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Comparing sequence data before and after quality trimming for {wildcards.sample} {wildcards.qtr_read}"
+   script:
+      "scripts/DataExtraction/FASTQ_Comp_Data.R"  
+
+
+# Combine the comparative files
+rule qtrseqcompdata_sample:
+   version: "1.0"
+   input:
+      files = expand(merging_seqdata + "/{sample}_{qtr_read}_qtr_impact.tsv", qtr_read=qtr_reads, allow_missing=True)
+   params:
+      colnames = ["read"],
+      vals = qtr_reads
+   output:
+      out = merging_seqdata + "/{sample}_qtr_{trimmed}_impact.tsv"
+   message:
+      "Combining quality trim impact data for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/dataConcat.py"
+
+
+# Copy a qtr fastqc file 
+rule copy_qtr_fastqc:
+   version: "1.0"
+   input:
+      fastQC_for_file(merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"),
+   output:
+      basedir_reporting + "/FastQC/qtr_{trimmed}_{sample}_{qtr_read}_fastqc.html"
+   shell:
+      "cp {input} {output}"
+
+
+# Copy a classification fastqc file 
+rule copy_classification_fastqc:
+   version: "1.0"
+   input:
+      lambda w: fastQC_for_file(classfication_fastq())
+   output:
+      basedir_reporting + "/FastQC/class_{trimmed}_{sampling_size}_{sample}_fastqc.html"
+   shell:
+      "cp {input} {output}"
+
+
+# Prepare classification reads for all samples
+rule analysisReads:
+   version: "1.0"
+   input:
+      expand(classfication_fastq(), sample=sample_names),
+      expand(merge_data + "/{sample}_qtr_{trimmed}.tsv",  sample=sample_names, trimmed=trimmed_val)
+   message:
+      "Generated analysis reads"
+
+
+rule analysisReadsSeqData:
+   version: "1.0"
+   input:
+      expand(merging_seqdata + "/{sample}_qtr_{trimmed}_seqdat_overview.tsv", trimmed=trimmed_val, sample=sample_names),
+      expand(analysis_seqdata + "/{sample}_analysis_{trimmed}_{sampling_size}_seqdat_overview.tsv", trimmed=trimmed_val, sample=sample_names, sampling_size=sampling_size),
+      expand(merging_seqdata + "/{sample}_qtr_{trimmed}_impact.tsv", trimmed=trimmed_val, sample=sample_names)
+   message:
+      "Produced sequence data for the analysis reads"
+
+
+rule analysisReadsFASTQC:
+   version: "1.0"
+   input:
+      expand(basedir_reporting + "/FastQC/qtr_{trimmed}_{sample}_{qtr_read}_fastqc.html", trimmed=trimmed_val, sample=sample_names, qtr_read=qtr_reads, sampling_size=sampling_size),
+      expand(basedir_reporting + "/FastQC/class_{trimmed}_{sampling_size}_{sample}_fastqc.html", trimmed=trimmed_val, sample=sample_names, sampling_size=sampling_size),
+   message:
+      "Produced analysis reads reports"
+
+
+# Create read anaprep report
+rule analysisReadsReport:
+   version: "1.0"
+   input:
+   # Read ana prep
+      readanno_overview = expand(merging_seqdata + "/{sample}_qtr_{trimmed}_seqdat_overview.tsv", trimmed=trimmed_val, sample=sample_names),
+      readanno_toplot = expand(merging_seqdata + "/{sample}_qtr_{trimmed}_seqdat_plotdata.tsv", trimmed=trimmed_val, sample=sample_names),
+      readanno_sampled_overview = expand(analysis_seqdata + "/{sample}_analysis_{trimmed}_{sampling_size}_seqdat_overview.tsv", trimmed=trimmed_val, sample=sample_names, sampling_size=sampling_size),
+      readanno_sampled_toplot = expand(analysis_seqdata + "/{sample}_analysis_{trimmed}_{sampling_size}_seqdat_plotdata.tsv", trimmed=trimmed_val, sample=sample_names, sampling_size=sampling_size),
+      readanno_qctrim = expand(merge_data + "/{sample}_qtr_{trimmed}.tsv", trimmed=trimmed_val, sample=sample_names),
+      readdanno_prep_summary_impact = expand(merging_seqdata + "/{sample}_qtr_{trimmed}_impact.tsv", trimmed=trimmed_val, sample=sample_names),
+      readanno_fastqc = expand(basedir_reporting + "/FastQC/qtr_{trimmed}_{sample}_{qtr_read}_fastqc.html", trimmed=trimmed_val, sample=sample_names, qtr_read=qtr_reads, sampling_size=sampling_size),
+      readanno_sampled_fastqc = expand(basedir_reporting + "/FastQC/class_{trimmed}_{sampling_size}_{sample}_fastqc.html", trimmed=trimmed_val, sample=sample_names, sampling_size=sampling_size),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names,
+      readanno_fastqc = {"sample": [sample for sample in sample_names for _ in qtr_reads], "read":[read for _ in sample_names for read in qtr_reads]},
+      readanno_sampled_fastqc = {"sample": [sample for sample in sample_names]}
+   output:
+      basedir_reporting + "/4read-ana-prep.html"
+   benchmark:
+      basedir_bench_prep + "/read_ana_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Creating read analysis preparation report"
+   script:
+      "scripts/Reports/read-ana-prep.Rmd"
+
+
+rule prepareReads:
+   input:
+      expand(classfication_fastq(), sample=sample_names),
+      expand(trimming_res + "R1_adptr_tr.fastq.gz", sample=sample_names),
+      expand(merge_data + "/{sample}_qtr_{trimmed}.tsv",  sample=sample_names, trimmed=trimmed_val),
+      expand(merge_data_file + "overview.tsv", trimmed=adpt_poss, sample=sample_names),
+
+
+rule prepareReadsReport:
+   input:
+      basedir_reporting + "/1raw-reads.html",
+      basedir_reporting + "/2trimming.html",
+      basedir_reporting + "/3read-merging.html",
+      basedir_reporting + "/4read-ana-prep.html",
+

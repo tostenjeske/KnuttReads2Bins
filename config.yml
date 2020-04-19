@@ -23,6 +23,11 @@ output_dir: "output"
 # Where to place reference/database files
 reference_dir: "reference_data"
 
+# Base thread count for rules with low/medium/high memory requirements
+threadcount_low_mem: 40
+threadcount_med_mem: 20
+threadcount_high_mem: 10
+
 #
 # Adapter trimming configuration
 #
@@ -35,7 +40,7 @@ adaptertrim: true
 
 # Default adapter configuration
 # Nextera adapter regular 3' on R1 and R2
-def_adapter_conf: "-a CTGTCTCTTATACACATCTX -A CTGTCTCTTATACACATCTX"
+def_adapter_conf: "-a CTGTCTCTTATACACATCT -A CTGTCTCTTATACACATCT --trim-n --max-n 0.1"
 
 # Sample specific adapter configurations
 adapter_conf:
@@ -80,14 +85,19 @@ classification_qual: 20
 # (cutadapt -m)
 # Also used as minlength for Sina
 classification_minlen: 100
-# Perform sampling on the red files classification
+# The entropy limit passed to BBmask
+# https://jgi.doe.gov/data-and-tools/bbtools/bb-tools-user-guide/bbmask-guide/
+low_complex_entropy: 0.75
+# K-mer abundance cutoff (trim-low-abund.py -C)
+khmer_abd_cutoff: 3
+# Trim read when entire read is above this cov
+# (trim-low-abund.py -Z)
+khmer_read_trim_cov: 18
+# Perform sampling on the classification read files 
 # unmerged R1 and merged reads are combined and 
 # then sampled.
 # Number of reads to draw (0 to disable)
 read_sampling: 0
-# The entropy limit passed to BBmask
-# https://jgi.doe.gov/data-and-tools/bbtools/bb-tools-user-guide/bbmask-guide/
-low_complex_entropy: 0.75
 
 
 #
@@ -131,6 +141,11 @@ kaiju_greedy_score: 65
 # -1 disables the evalue filter 
 kaiju_greedy_eval: -1
 
+
+# Fraction of k-mers to calculate.
+# --scaled argument to sourmash
+sourmash_scaled: 1000
+
 ## Read annotation
 
 # Only use the reviewed entries (SWISS Prot)
@@ -146,14 +161,14 @@ min_contiglen: 200
 # See the MEGAHIT wiki for some tips on assembly
 # --min-count (multiplicity/depth) is set 
 # to 2 per default in megahit!
-#megahit_options: "--presets meta-sensitive"
-megahit_options: "--k-min 27  --k-step 10  --k-max 127"
+megahit_options: "--presets meta-sensitive"
+#megahit_options: "--k-min 27  --k-step 10  --k-max 127"
 
 # k-mer Sizes for fastg files
 kmer_sizes_graph:
-  - 107
-  - 117
-  - 127
+  - 119
+  - 129
+  - 141
 
 
 # Number of reference to use in metaQuast, 0: none

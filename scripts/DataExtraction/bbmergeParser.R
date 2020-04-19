@@ -3,7 +3,7 @@
 ##
 ## bbmergeParser.R - Read data from the BBmerge report
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 #
 # The log parsing approach is currently necessary, as the insert details
 # doesn't report the ambigous merges, it only reports the flags P,I and F,

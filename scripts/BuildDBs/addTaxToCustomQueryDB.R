@@ -3,7 +3,7 @@
 ##
 ## addTaxToCustomQueryDB.R - Add tax columns to the databases from Uniprot
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # Uses the "Organism ID" field in the input file and the pregenerated
 # ncbitaxhelper file. Also produces a file for Krona.
@@ -50,7 +50,7 @@ tax <-
   lookup(taxids, taxlevels = taxcols, threads = threads)
 database <- cbind(database, tax)
 database[, query := NULL]
-fwrite(database, file = output_file, sep = "\t")
+fwrite(database, file = output_file, sep = "\t", quote = F)
 kronadata <- cbind(freq = 1, All = "All", database[, taxcols, with = F])
-fwrite(kronadata, krona_file, col.names = F, sep = "\t")
+fwrite(kronadata, krona_file, col.names = F, sep = "\t", quote = F)
 

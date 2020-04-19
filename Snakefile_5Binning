@@ -1,47 +1,43 @@
 ##
 ## Snakefile_5Binning - Binning rules
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # This Snakefile uses metaBAT2 for binning and checkM for bin analysis.
 # Each bin receives classification and depth data.
 
+
+localrules: checkm_data, filter_cat_proteins, binmap
+
 # Binning results
 basedir_binning = config["output_dir"]+"/Binning"
+basedir_bench_binning = basedir_bench + "/Binning"
+basedir_data_binning = basedir_data + "/Binning"
 
-# Calculate the depth for metabat using its depth tool
-rule metabat_depth:
-   input:
-      contigs = rules.megahit_assembly.output.contigs,
-      bam = rules.map_reads.output.bam,
-      bai = rules.map_reads.output.bai
-   output:
-      depth = basedir_binning+"/metabat/{sample}/{sample}_jgi_summarize_depth.tsv"
-   conda:
-      "envs/Knutt2Reads2Bins.yml" 
-   log:
-      basedir_binning+"/metabat/{sample}/{sample}_jgi_summarize_depth.log"
-   shell:
-      ("jgi_summarize_bam_contig_depths --outputDepth {output.depth} "
-       "--referenceFasta {input.contigs} {input.bam} &> {log}")
 
 # Run metabat2
 rule metabat:
+   version: "1.0"
    input:
       contigs = rules.megahit_assembly.output.contigs,
       depth = rules.metabat_depth.output
    params:
-      prefix = basedir_binning+"/metabat/{sample}/bins/{sample}"
+      prefix = basedir_binning + "/METABAT/{sample}/bins/{sample}"
    output:
-      dir = directory(basedir_binning+"/metabat/{sample}/bins"),
-      unbinned = basedir_binning+"/metabat/{sample}/{sample}.unbinned.fa",
-      lowdepth = basedir_binning+"/metabat/{sample}/{sample}.lowDepth.fa",
-      tooshort = basedir_binning+"/metabat/{sample}/{sample}.tooShort.fa"
-   conda:
-      "envs/Knutt2Reads2Bins.yml" 
+      dir = directory(basedir_binning + "/METABAT/{sample}/bins"),
+      unbinned = basedir_binning + "/METABAT/{sample}/{sample}.unbinned.fa",
+      lowdepth = basedir_binning + "/METABAT/{sample}/{sample}.lowDepth.fa",
+      tooshort = basedir_binning + "/METABAT/{sample}/{sample}.tooShort.fa"
    log:
-      basedir_binning+"/metabat/{sample}/{sample}_metabat2.log"
-   threads: 30
+      basedir_binning + "/METABAT/{sample}/{sample}_metabat2.log"
+   benchmark:
+      basedir_bench_binning + "/metabat_{sample}.tsv"
+   threads:
+      16
+   conda:
+      "envs/KnuttReads2Bins.yml" 
+   message:
+      "Running METABAT2 for {wildcards.sample}"
    shell:
       ("{{ metabat2 -i {input.contigs} -a {input.depth} "
        "-m {config[min_contiglen_binning]} -x {config[min_contigcov]} "
@@ -50,100 +46,294 @@ rule metabat:
        "mv {params.prefix}.unbinned.fa {params.prefix}.lowDepth.fa "
        "{params.prefix}.tooShort.fa {output.dir}/.. ; }} &> {log}")
 
+
 # Download checkM data and set data root
 rule checkm_data:
-   output:
-      dat=basedir_dbs+"/checkmdata/taxon_marker_sets.tsv",
+   version: "1.0"
    params:
-      dir=basedir_dbs+"/checkmdata/"
+      dir = basedir_dbs + "/CheckM/"
+   output:
+      dat = basedir_dbs + "/CheckM/taxon_marker_sets.tsv",
    conda:
-      "envs/Knutt2Reads2Bins.yml" 
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Downloading CheckM data"
    shell:
       ("wget -qO- https://data.ace.uq.edu.au/public/CheckM_databases/checkm_data_2015_01_16.tar.gz | "
       "tar xzf - -C {params.dir} && checkm data setRoot {params.dir}")
 
+
 # Run checkM on a sample
 rule checkm_sample:
+   version: "1.0"
    input:
       rules.checkm_data.output,
-      indir=rules.metabat.output.dir
-   output:
-      sreport=basedir_binning+"/checkm/{sample}/checkm_{sample}.tsv",
-      outdir=directory(basedir_binning+"/checkm/{sample}/{sample}_checkm_data/")
-   log:
-      basedir_binning+"/checkm/{sample}/{sample}_checkm_wf.log"
+      indir = rules.metabat.output.dir
    params:
-      datadir=rules.checkm_data.params.dir
+      datadir = rules.checkm_data.params.dir,
+      newheader = "bin\tmarker_lineage\tlineage_genomes\tlineage_markers\tlineage_marker_sets\t0_sets\t1_sets\t2_sets\t3_sets\t4_sets\t5_or_more_sets\tcompleteness\tcontamination\tstrain_heterogeneity"
+   output:
+      sreport = basedir_data_binning + "/{sample}_checkm.tsv",
+      outdir = directory(basedir_binning + "/CheckM/{sample}/{sample}_checkm_data/")
+   log:
+      basedir_binning + "/CheckM/{sample}/{sample}_checkm_wf.log"
+   benchmark:
+      basedir_bench_binning + "/checkm_wf_{sample}.tsv"
+   threads:
+      16
    conda:
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 8
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running CheckM lineage workflow for {wildcards.sample}"
    shell:
       ("checkm lineage_wf -f {output.sreport} --tab_table -x fa "
-       " -t {threads} {input.indir} {output.outdir} &> {log}")
+       " -t {threads} {input.indir} {output.outdir} &> {log} && "
+       "sed -i '1c{params.newheader}' {output.sreport}")
+
 
 # Calculate checkm help files
 rule checkm_extra_data:
+   version: "1.0"
    input:
       rules.checkm_data.output,
-      indir=rules.checkm_sample.input.indir,
-      contigs=rules.metabat.input.contigs,
-      mapped=rules.map_reads.output.bam,
-      mappedi=rules.map_reads.output.bai,
-   output:
-      tetras=basedir_binning+"/checkm/{sample}/{sample}_tetras.tsv",
-      cov=basedir_binning+"/checkm/{sample}/{sample}_checkm_cov.tsv",
-      profile=basedir_binning+"/checkm/{sample}/{sample}_checkm_profile.tsv",
-   log:
-      basedir_binning+"/checkm/{sample}/{sample}_checkm_helperfiles.log"
-   threads: 15
+      indir = rules.checkm_sample.input.indir,
+      contigs = rules.metabat.input.contigs,
+      mapped = rules.map_reads.output.bam,
+      mappedi = rules.map_reads.output.bai,
    params:
-      datadir=rules.checkm_data.params.dir
+      datadir = rules.checkm_data.params.dir,
+      covheader = "contigid\tbin\tlen\tbamfile\tavgcov\treads",
+      profileheader = "bin\tbinsize_Mbp\treads\treads_perc\tofbinnedpop_perc\tofcommunity_perc"
+   output:
+      tetras = basedir_data_binning + "/{sample}_checkm_tetras.tsv",
+      cov = basedir_data_binning + "/{sample}_checkm_cov.tsv",
+      profile = basedir_data_binning + "/{sample}_checkm_profile.tsv",
+   log:
+      basedir_binning + "/CheckM/{sample}/{sample}_checkm_helperfiles.log"
+   benchmark:
+      basedir_bench_binning + "/checkm_extra_{sample}.tsv"
+   threads:
+      16
    conda:
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running CheckM utilities for {wildcards.sample}"
    shell:
       ("{{ checkm tetra -t {threads} {input.contigs} {output.tetras} && "
        "checkm coverage -x fa -t {threads} {input.indir} {output.cov} {input.mapped} && "
-       "checkm profile --tab_table -f {output.profile} {output.cov} ; }} &> {log}")
+       "checkm profile --tab_table -f {output.profile} {output.cov} ; }} &> {log} && "
+       "sed -i '1 s/Sequence Id/contigid/' {output.tetras} && sed -i '1c{params.covheader}' {output.cov} && "
+       "sed -i '1c{params.profileheader}' {output.profile}")
+
+
+rule sourmash_bins:
+   version: "1.0"
+   input:
+      rules.checkm_sample.input.indir
+   output:
+      basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.sig"
+   log:
+      basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.log"
+   benchmark:
+      basedir_bench_binning + "/sourmash_bins_k{k}_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Calculating sourmash {wildcards.k}-mer hashes for the bins from {wildcards.sample}" 
+   shell:
+      "sourmash compute -k {wildcards.k} --track-abundance --scaled {config[sourmash_scaled]} --seed 42 -f -o {output} {input}/*.fa &> {log}"
+
+
+rule sourmash_bins_describe:
+   version: "1.0"
+   input:
+      expand(basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True)
+   output:
+      basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv"
+   log:
+      basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_descr.log"
+   benchmark:
+      basedir_bench_binning + "/sourmash_bins_description_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Describing sourmash signature for the bins from {wildcards.sample}" 
+   shell:
+      "sourmash sig describe --csv {output} {input} &> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+
+
+# Run the LCA 
+rule sourmash_bins_lca:
+   version: "1.0"
+   input:
+      sig = expand(basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True),
+      db = basedir_dbs + "/Sourmash/" + sourmash_lca_name
+   output:
+     basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv"
+   log:
+      basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_classification.log"
+   benchmark:
+      basedir_bench_binning + "/sourmash_classification_{sample}.tsv"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Classifying the bins from {wildcards.sample} with Sourmash" 
+   shell:
+      "sourmash lca classify --db {input.db} --query {input.sig} > {output} 2> {log} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
 
 
 # Filter and add bins names to CAT proteins for BAT
 rule filter_cat_proteins:
+   version: "1.0"
    input:
-      indir=rules.metabat.output.dir,
+      indir = rules.metabat.output.dir,
       proteins = rules.classify_contigs.output[2],
       aligned = rules.classify_contigs.output[3]
    output:
-      proteins = basedir_binning+"/bin_classification/{sample}/{sample}.bins.predicted_proteins.faa",
-      aligned = basedir_binning+"/bin_classification/{sample}/{sample}.bins.alignment.diamond"
+      proteins = basedir_binning + "/BAT/{sample}/{sample}.bins.predicted_proteins.faa",
+      aligned = basedir_binning + "/BAT/{sample}/{sample}.bins.alignment.diamond"
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Reformatting CAT results from {wildcards.sample} for BAT"
    shell:
       ("scripts/Pipeline/addBinsCATfileForBAT.py -b {input.indir} -s .fa "
        "-p {input.proteins} -d {input.aligned} -P {output.proteins} "
        "-D {output.aligned}")
 
+
 # Classify the bins
 rule classify_bins:
+   version: "1.0"
    input:
       rules.index_cat_bat.input,
-      indir=rules.metabat.output.dir,
+      indir = rules.metabat.output.dir,
       db = rules.index_cat_bat.output,
       proteins = rules.filter_cat_proteins.output.proteins,
       aligned = rules.filter_cat_proteins.output.aligned,
    params:
       taxdir = rules.download_ncbi_tax.params.dir,
-      prefix = basedir_binning+"/bin_classification/{sample}/{sample}"
+      prefix = basedir_binning + "/BAT/{sample}/{sample}"
    output:
-      basedir_binning+"/bin_classification/{sample}/{sample}.bin2classification.txt"
+      basedir_binning + "/BAT/{sample}/{sample}.bin2classification.txt"
    log:
-      basedir_binning+"/bin_classification/{sample}/{sample}_BAT.log"
+      basedir_binning + "/BAT/{sample}/{sample}_BAT.log"
+   benchmark:
+      basedir_bench_binning + "/bat_{sample}.tsv"
+   threads: # Uses existing data, no DIAMOND call
+      1
    conda: 
-      "envs/Knutt2Reads2Bins.yml"
-   threads: 8
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Running BAT on {wildcards.sample}"
    shell:
       ("CAT bins -b {input.indir} -s .fa -d {input.db} -t {params.taxdir} "
        "-o {params.prefix} -n {threads} -p {input.proteins} -a {input.aligned} &> {log}")
 
-rule temp:
-	input:
-		expand(rules.classify_bins.output,sample=sample_names)
+
+rule binmap:
+   version: "1.0"
+   input:
+      bindir = rules.metabat.output.dir,
+      additional = expand(basedir_binning + "/METABAT/{sample}/{sample}.{type}.fa", type=["unbinned", "lowDepth", "tooShort"], allow_missing=True),
+      assembly = rules.metabat.input.contigs
+   output:
+      basedir_data_binning + "/{sample}_binmap.tsv"
+   conda: 
+      "envs/R.yml"
+   message:
+      "Creating bin map for {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/binMap.R"
+
+
+rule formatbat:
+   version: "1.0"
+   input:
+      cat = rules.formatcat.output.dat,
+      bat = basedir_binning + "/BAT/{sample}/{sample}.bin2classification.named.txt",
+      binmap = rules.binmap.output
+   output:
+      dat = basedir_data_binning + "/{sample}_bat.tsv",
+      krona = temp(basedir_data_binning + "/{sample}_bat_krona.tsv")
+   conda:
+      "envs/R.yml"
+   message:
+      "Formatting BAT output from {wildcards.sample}"
+   script:
+      "scripts/DataExtraction/formatBATData.R"
+
+
+# Create binning report
+rule binningReport:
+   version: "1.0"
+   input:
+      checkmprofile = expand(basedir_data_binning + "/{sample}_checkm_profile.tsv", sample=sample_names),
+      checkmlineage = expand(basedir_data_binning + "/{sample}_checkm.tsv", sample=sample_names),
+      tetras = expand(basedir_data_binning + "/{sample}_checkm_tetras.tsv", sample=sample_names),
+      checkmcov = expand(basedir_data_binning + "/{sample}_checkm_cov.tsv", sample=sample_names),
+      sourmashclass = expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
+      commons = "scripts/Reports/commonReport.R",
+   params:
+      samples = sample_names
+   output:
+      basedir_reporting + "/8binning.html"
+   benchmark:
+      basedir_bench_binning + "/binning_report.tsv"
+   conda:
+      "envs/R.yml"
+   message:
+      "Generating binning report"
+   script:
+      "scripts/Reports/binning.Rmd"
+
+
+rule binning:
+   version: "1.0"
+   input:
+      expand(basedir_data_binning + "/{sample}_checkm.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_checkm_profile.tsv",  sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_binmap.tsv", sample=sample_names)
+   message:
+      "Ran binning and CheckM"
+
+
+rule binningSourmash:
+   version: "1.0"
+   input:
+      expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv", sample=sample_names)
+
+
+rule binningRefData:
+   version: "1.0"
+   input:
+      expand(basedir_data_binning + "/{sample}_checkm.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_checkm_profile.tsv",  sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_binmap.tsv", sample=sample_names)
+   message:
+      "Ran binning and CheckM"
+
+
+rule bat:
+   version: "1.0"
+   input:
+      expand(basedir_data_binning + "/{sample}_bat.tsv", sample=sample_names)
+   message:
+      "Ran BAT"
+
+
+rule batKrona:
+   version: "1.0"
+   input:
+      expand(basedir_data_binning + "/{sample}_bat_krona.tsv", sample=sample_names),
+   params:
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_binning + "/{sample}_bat_krona.tsv", sample=sample_names), sample_names)]
+   output:
+      basedir_reporting + "/BAT_krona.html"
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Creating BAT Krona report"
+   shell:
+      "ktImportText -o {output} -n All {params.pairs}"

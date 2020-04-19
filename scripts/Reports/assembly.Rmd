@@ -8,35 +8,37 @@ output:
 ---
 
 ```{r, include=FALSE}
-if(exists("snakemake")){
-  metaquast.file = snakemake@input[["metaquast"]]
-  cov.details.file = snakemake@input[["covdetails"]]
-  cov.summary.file = snakemake@input[["covsum"]]
-  jgi_cov.details.file = snakemake@input[["jgicovdetails"]]
-  commonscript.file = snakemake@input[["commons"]]
-  threads=snakemake@threads
-}else{
-  metaquast.file = "~/Desktop/Desktop/metaquast.tsv"
-  cov.details.file = "~/Desktop/Desktop/cov_pileup_details.tsv"
-  cov.summary.file = "~/Desktop/Desktop/cov_pileup_summary.tsv"
-  jgi_cov.details.file = "~/Desktop/Desktop/cov_metabat2_details.tsv"
-  commonscript.file = "commonReport.R"
-  threads=NA
-}
-taxcols=c("superkingdom","phylum","class","order","family","genus","species")
-files = c(metaquast.file,cov.details.file,cov.summary.file,jgi_cov.details.file)
+databasescaled <- 10000
+metaquast.file <- snakemake@input[["metaquast"]]
+cov.details.file <- snakemake@input[["covdetails"]]
+cov.summary.file <- snakemake@input[["covsum"]]
+jgi_cov.details.file <- snakemake@input[["jgicovdetails"]]
+commonscript.file <- snakemake@input[["commons"]]
+lca.file <- snakemake@input[["lca"]]
+sig.file <- snakemake@input[["sig"]]
+samplenames <- list(sample=snakemake@params[["samples"]])
+taxcols <- c("superkingdom","phylum","class","order","family","genus","species")
+files <- unlist(c(metaquast.file,cov.details.file,cov.summary.file,jgi_cov.details.file))
 source(commonscript.file)
-commonOptions(threads)
+commonOptions(1)
 require(tidyr)
 
-
-metaquast = fread(metaquast.file)
+metaquast <- readData(metaquast.file, samplenames)
 metaquast[, Assembly := NULL]
-cov.details = fread(cov.details.file)
-cov.details[,Length:=as.numeric(Length)]
-cov.details[,Ref_GC:=NULL]
-cov.summary =  fread(cov.summary.file)
-jgi_cov.details = fread(jgi_cov.details.file)
+cov.details <- readData(cov.details.file, samplenames)
+cov.summary <-  readData(cov.summary.file, samplenames)
+cov.summary[, percmapped:=mappedreads/reads*100]
+jgi_cov.details <- readData(jgi_cov.details.file, samplenames)
+
+sig <- readData(sig.file, samplenames)
+lca <- readData(lca.file, samplenames)
+lca[is.na(lca)] <- ""
+lca[, depth:=apply(.SD, 1, function(row)sum(row!="")), .SD=taxcols]
+taxdata <- copy(lca)
+taxdata <- rbindlist(lapply(split(taxdata, taxdata$sample),fixTaxCounts))
+taxdata[taxdata==""] <- "Unclassified"
+setnames(taxdata, "count", "N")
+setcolorder(taxdata, c("sample", taxcols, "N"))
 ```
 
 Overview
@@ -51,6 +53,7 @@ The assembly was done with [MEGAHIT](https://github.com/voutcn/megahit) using th
 
 The Nx values are the length of the contig at which x percent of cumulative contig length is reached (sorted by contig length descending). Lx values are the minimal number of contigs, which is needed to construct x% of the cumulative length.
 
+Taxonomy data is based on the results from Sourmash for the whole assembly.
 
 
 > Rendered at: `r Sys.time()`.
@@ -112,12 +115,11 @@ Row
 ### Nx
 
 ```{r}
-setorder(cov.details,sample,-Length)
-cov.details[,cumLength := cumsum(Length),by=sample]
-cov.details[,Nx := cumLength/sum(Length)*100,by=sample]
-nxdat = cov.details[,approx(Nx,Length,seq(0,100,0.05)),by=sample][!is.na(y)]
+setorder(cov.details,sample,-len)
+cov.details[,cumLength := cumsum(len), by=sample]
+cov.details[,Nx := cumLength/sum(len)*100, by=sample]
+nxdat = cov.details[,approx(Nx,len,seq(0,100,0.05)),by=sample][!is.na(y)]
 ggplotly(ggplot(nxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_reverse() + xlab("Nx") +ylab("Length of the contig in bp")+labs(color="Sample"))
-
 ```
 
 > The Nx plot
@@ -136,7 +138,7 @@ Row
 
 ### Coverage
 ```{r}
-cov.summary.vis=cov.summary[,.(Sample=sample,Reads=reads,`Mapped reads`=mappedreads,`Mapped bases`=mappedbases,`Number of contigs`=refscaff,`Total Length`=refbases,`Mapped reads (%)`=round(percmapped,1),`Properly paired Reads`=round(percproperpairs,1),`Average coverage`=avcov,`Std. Dev. Coverage`=stddev,`Contigs with any coverage(%)`=round(scaffwithanycov,1),`Bases covered(%)`=round(refbasescov,1))]
+cov.summary.vis=cov.summary[,.(Sample=sample,Reads=reads,`Mapped reads`=mappedreads,`Mapped bases`=mappedbp,`Number of contigs`=contigs,`Total Length`=contigbp,`Mapped reads (%)`=round(percmapped,1),`Properly paired Reads`=round(properpairsperc,1),`Average coverage`=avgcov,`Std. Dev. Coverage`=stddev,`Contigs with any coverage(%)`=round(contigswithanycovperc,1),`Bases covered(%)`=round(bpswithanycovperc,1))]
 DT::datatable(cov.summary.vis)
 ```
 
@@ -148,9 +150,44 @@ Row
 ### Coverage Distribution
 
 ```{r}
-covstats = rbind(data.table(type="PileUp",avcov=cov.details[["Avg_fold"]],sample=cov.details$sample),data.table(type="JGI",avcov=jgi_cov.details$totalAvgDepth,sample=jgi_cov.details$sample))
+covstats = rbind(data.table(type="PileUp",avcov=cov.details[["avgcov"]],sample=cov.details$sample),data.table(type="JGI",avcov=jgi_cov.details$avgcov,sample=jgi_cov.details$sample))
 covstats=covstats[,calculateBoxplotstats(avcov),by=c("sample","type")]
 ggplot(covstats) + aes(fill=sample,lower=lower,upper=upper,middle=middle,ymin=ymin,ymax=ymax,x=sample,group=interaction(sample,type)) + geom_boxplot(stat="identity") + facet_grid(cols=vars(type))+theme(legend.position = "none")+xlab("Sample")+ylab("Coverage")
 ```
 
 > The distribution of the contig coverage, the whiskers extend from the hinges 1.5 times the IQR, but at most to the min/max values. 
+
+
+Row
+-----------------------------------------------------------------------
+
+
+### Number of hashes
+
+```{r}
+ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
+```
+
+> The number of hashes used for each assembly. 
+
+### Hashes classified
+
+```{r}
+fraction_classified <- merge(lca[depth==min(depth), .(count=sum(count)), by=sample], sig[, .(sample,n_hashes,scaled)])
+fraction_classified[, fraction_classified:=count/n_hashes*databasescaled/scaled*100]
+ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
+```
+
+> The number of classified hashes. The percentages were calculated by dividing the reported count by `n_hashes` and the ratio of the sample and database scale factor.
+
+
+Taxonomy
+=================
+
+Row
+---------------------------------------
+
+
+```{r, results="asis"}
+drawSampleTaxplots(taxdata)
+```

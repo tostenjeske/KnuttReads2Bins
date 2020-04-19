@@ -3,7 +3,7 @@
 ##
 ## bbcoverageParser.R - Get coverage statistics from pileup.sh script
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 #
 # The log contains information on the total read coung and proper pairing
 # of the pairs, this information can't be extracted from the detail file.
@@ -12,20 +12,18 @@
 options(warn=2)
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ShortRead))
 
-logfile <- "ChinaNM2MG_pileup_cov.log"
-outputfile <- "testing.tsv"
+logfile <- snakemake@input[["log"]]
+rawdetailsfile <- snakemake@input[["details"]]
+seqfile <- snakemake@input[["seq"]]
+summaryfile <- snakemake@output[["summary"]]
+detailsfile <- snakemake@output[["details"]]
 
-if(exists("snakemake")){
-  logfile <- snakemake@input[[1]]
-  outputfile <- snakemake@output[[1]]
-}
-
-patternsuffix = ":\\s+\\t(\\d+\\.?\\d*)"
+patternsuffix <- ":\\s+\\t(\\d+\\.?\\d*)"
 pat <- function(prefix){
  paste0(prefix,patternsuffix)
 }
-
 
 parseSummaryLogFile <- function(file){
   content <- readChar(file, file.info(file)$size)
@@ -37,18 +35,36 @@ parseSummaryLogFile <- function(file){
 
   reads <- extract("Reads")
   mappedreads <- extract("Mapped reads")
-  mappedbases <- extract("Mapped bases")
-  refscaffs <- extract("Ref scaffolds")
-  refbases <- extract("Ref bases")
-  percproperpairs <- extract("Percent proper pairs")
-  avcov <- extract("Average coverage")
+  mappedbp <- extract("Mapped bases")
+  contigs <- extract("Ref scaffolds")
+  contigbp <- extract("Ref bases")
+  properpairsperc <- extract("Percent proper pairs")
+  avgcov <- extract("Average coverage")
   stddev <- extract("Standard deviation")
-  scaffwithanycov <- extract("Percent scaffolds with any coverage")
-  refbasescov <- extract("Percent of reference bases covered")
+  contigswithanycovperc <- extract("Percent scaffolds with any coverage")
+  bpswithanycovperc <- extract("Percent of reference bases covered")
 
-  df<-data.frame(reads,mappedreads,mappedbases,refscaffs,refbases,percproperpairs,avcov,stddev,scaffwithanycov,refbasescov)
+  df<-data.frame(reads,mappedreads,mappedbp,contigs,contigbp,properpairsperc,avgcov,stddev,contigswithanycovperc,bpswithanycovperc)
   df
 }
 
-sumdf=parseSummaryLogFile(logfile)
-write.table(sumdf,outputfile,sep="\t",row.names = F)
+sumdf <- parseSummaryLogFile(logfile)
+write.table(sumdf, summaryfile, sep="\t", row.names = F, quote=F)
+
+
+newcols <- c("contigid", "avgcov", "len", "refgc", "covperc", "plus_reads", "minus_reads", "readgc", "mediancov", "stddev", "covbases")
+dat <- fread(rawdetailsfile, sep="\t")
+setnames(dat, c("#ID", "Avg_fold", "Length", "Ref_GC", "Covered_percent", "Plus_reads", "Minus_reads", "Read_GC", "Median_fold", "Std_Dev", "Covered_bases"), newcols)
+newcols[[1]] <- c("contig")
+dat[, refgc:=NULL]
+seqs <- readFasta(seqfile)
+seqs <- data.table(contig=as.character(id(seqs)), refgc=round(letterFrequency(sread(seqs), letters="CG", as.prob=T)[, 1], 3))
+seqs[, contigid:=tstrsplit(contig, " ", fixed=T)[[1]]]
+setkey(seqs, contigid)
+setkey(dat, contigid)
+dat <- seqs[dat]
+dat[, contigid:=NULL]
+setcolorder(dat, newcols)
+write.table(dat, detailsfile, sep="\t", row.names = F, quote=F)
+
+

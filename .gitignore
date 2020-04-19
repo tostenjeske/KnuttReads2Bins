@@ -4,3 +4,5 @@ input/*
 !input/Readme.md
 output/
 reference_data/
+.RData
+.vscode/

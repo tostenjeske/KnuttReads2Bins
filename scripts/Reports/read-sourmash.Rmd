@@ -1,0 +1,137 @@
+---
+title: "Sourmash Read Classification"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+
+```{r, include=FALSE}
+databasescaled <- 10000
+gather.file <- snakemake@input[["gather"]]
+lca.file <- snakemake@input[["lca"]]
+sig.file <- snakemake@input[["sig"]]
+comparison.file <- snakemake@input[["comparison"]]
+commonscript.file <- snakemake@input[["commons"]]
+threads <- snakemake@threads
+samplenames <- list(sample=snakemake@params[["samples"]])
+files <- unlist(c(gather.file, lca.file, comparison.file))
+source(commonscript.file)
+commonOptions(threads)
+require(matrixStats)
+require(stringr)
+taxcols <- c("superkingdom", "phylum", "class", "order", "family", "genus", "species", "strain")
+
+gather <- readData(gather.file, samplenames)
+sig <- readData(sig.file, samplenames)
+lca <- readData(lca.file, samplenames)
+lca[is.na(lca)] <- ""
+lca[, depth:=apply(.SD, 1, function(row)sum(row!="")), .SD=taxcols]
+comparison <- fread(comparison.file, sep="\t")
+matcols <- colnames(comparison)
+comparison[, row:=c(matcols)]
+
+
+taxdata <- copy(lca)
+taxdata <- rbindlist(lapply(split(taxdata, taxdata$sample),fixTaxCounts))
+taxdata[taxdata==""] <- "Unclassified"
+setnames(taxdata, "count", "N")
+setcolorder(taxdata, c("sample", taxcols, "N"))
+```
+
+Overview
+=================
+
+Row
+--------------------------------------
+
+### Application Note
+
+Sourmash uses the MiniHash method to compare sequences. The k-mers in a genome or a set of reads are first hashed. 
+Only a set of the numeric smallest hashes is kept. Those hashes are then compared. The default configuration of the pipeline
+uses the option to scale the number of hashes generated from the reads by the sample size. This preserves the diversity of sample.
+
+The sample hashes are compared to ones generated from genomes in the genome taxanomy database (GTDB).
+
+> Rendered at: `r Sys.time()`.
+
+Row
+--------------------------------------
+
+### File Note
+
+```{r}
+knitr::kable(genInfoBlock(files))
+```
+> The table shows the files which have been used to generate this report.
+
+
+
+Row
+---------------------------------------
+
+### Number of hashes
+
+```{r}
+ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
+```
+
+> The number of hashes used for each sample. If you use Sourmash to compare samples, they should have a similar depth. You could also enable sampling or use a fixed number of hashes.
+
+### Hashes classified
+
+```{r}
+fraction_classified <- merge(lca[depth==min(depth), .(count=sum(count)), by=sample], sig[, .(sample,n_hashes,scaled)])
+fraction_classified[, fraction_classified:=count/n_hashes*databasescaled/scaled*100]
+ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
+```
+
+> The number of classified hashes. The percentages were calculated by dividing the reported count by `n_hashes` and the ratio of the sample and database scale factor.
+
+Row
+---------------------------------------
+
+### Reference Genome count
+
+```{r}
+ggplotly(ggplot(gather) + aes(x=sample, fill=sample,group=sample)+ geom_bar(stat = "count",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Genome Count", fill="Sample")+theme(legend.position = "none"))
+```
+
+> The number of reference genomes reported for each sample
+
+### Reference Genome Distribution
+
+```{r}
+gather[, perc_query:=f_orig_query*100]
+gather[, perc_match:=f_match*100]
+ggplotly(ggplot(gather) + aes(x=perc_match, y=perc_query, color=sample, text=name) + geom_point() + scale_color_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + scale_x_continuous(labels = function(x) paste0(x, "%")) + labs(x="Completion", y="of Sample", color="Sample"))
+```
+
+> Each point represents a reference genome found in a sample. The point labels contain the name.
+
+Row
+---------------------------------------
+
+### Sample comparison
+
+```{r}
+comp <- melt(comparison, id.vars="row", variable.name="col", value.name="sim")
+comp[, row:=factor(row, ordered=T, levels=matcols)]
+comp[, col:=factor(col, ordered=T, levels=matcols)]
+comp[, label:=as.character(round(sim,2))]
+ggplotly(ggplot(comp) + aes(x=col, y=row, fill=sim) + geom_tile() + geom_text(aes(label=label), color="white") + labs(x="", y="", fill="Similarity") + theme(legend.position = "none"))
+```
+
+Taxonomy
+=================
+
+Row
+---------------------------------------
+
+
+```{r, results="asis"}
+drawSampleTaxplots(taxdata)
+```
+

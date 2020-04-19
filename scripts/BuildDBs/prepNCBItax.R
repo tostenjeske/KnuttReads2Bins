@@ -3,7 +3,7 @@
 ##
 ## prepNCBItax.R - Create helper data and functions from the NCBI tax
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # From the names and nodes file this script produces the following objects
 # in an RData file:

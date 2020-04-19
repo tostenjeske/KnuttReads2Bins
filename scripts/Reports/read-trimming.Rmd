@@ -10,61 +10,61 @@ output:
 
 ```{r, include=FALSE}
 suppressPackageStartupMessages(require(data.table))
-if(exists("snakemake")){
-  merge_untrimmed.file <- snakemake@input[["mergedata_untrimmed"]]
-  merge_trimmed.file <- snakemake@input[["mergedata_trimmed"]]
-  trim_summary.file <- snakemake@input[["trimming_summary"]]
-  trim_details.file <- snakemake@input[["trimming_details"]]
-  trim_comparison.file <- snakemake@input[["trim_summary_beforeafter"]]
-  sampleoverview_trim.file <- snakemake@input[["trimmed_overview"]]  
-  tplot_raw.file <- snakemake@input[["raw_toplot"]]
-  sampleoverview_raw.file <- snakemake@input[["raw_overview"]]
-  tplot_trimmed.file <- snakemake@input[["trimmed_toplot"]]
-  
-  conf_adapters=snakemake@params[["adapters"]]
-  
-  threads = snakemake@threads
-  commonscript.file = snakemake@input[["commons"]]
-  
-  fastqcreports = as.data.table(snakemake@params[["fastqc"]])
-  fastqcreports[,qcreport:=snakemake@input[["fastqc"]]]
-}
-files = c(merge_untrimmed.file,merge_trimmed.file,trim_summary.file,trim_details.file,trim_comparison.file,sampleoverview_trim.file,tplot_raw.file,tplot_trimmed.file)
+
+merge_untrimmed.file <- snakemake@input[["mergedata_untrimmed"]]
+merge_trimmed.file <- snakemake@input[["mergedata_trimmed"]]
+trim_summary.file <- snakemake@input[["trimming_summary"]]
+trim_details.file <- snakemake@input[["trimming_details"]]
+trim_comparison.file <- snakemake@input[["trim_summary_impact"]]
+sampleoverview_trim.file <- snakemake@input[["trimmed_overview"]]  
+tplot_raw.file <- snakemake@input[["raw_toplot"]]
+sampleoverview_raw.file <- snakemake@input[["raw_overview"]]
+tplot_trimmed.file <- snakemake@input[["trimmed_toplot"]]
+
+conf_adapters <- snakemake@params[["adapters"]]
+
+threads <- snakemake@threads
+commonscript.file <- snakemake@input[["commons"]]
+
+fastqcreports <- cbind(as.data.table(snakemake@params$samples_reads), qcreport=snakemake@input[["fastqc"]])
+
+files <- unlist(c(merge_untrimmed.file,merge_trimmed.file,trim_summary.file,trim_details.file,trim_comparison.file,sampleoverview_trim.file,tplot_raw.file,tplot_trimmed.file))
 
 source(commonscript.file)
 commonOptions(threads)
 suppressPackageStartupMessages(require(matrixStats))
+samplenames <- list(sample=snakemake@params[["samples"]])
 
-merge_untrimmed<-fread(merge_untrimmed.file)
+merge_untrimmed<-readData(merge_untrimmed.file, samplenames)
 merge_untrimmed[,adaptercount:=round(adaptercount/pairstomerge*100,2)]
-merge_trimmed<-fread(merge_trimmed.file)
+merge_trimmed<-readData(merge_trimmed.file, samplenames)
 merge_trimmed[,adaptercount:=round(adaptercount/pairstomerge*100,2)]
 
-trim_comparison = fread(trim_comparison.file)
+trim_comparison <- readData(trim_comparison.file, samplenames)
 
-sampleoverview_trim = fread(sampleoverview_trim.file)
-sampleoverview_raw = fread(sampleoverview_raw.file)
+sampleoverview_trim <- readData(sampleoverview_trim.file, samplenames)
+sampleoverview_raw <- readData(sampleoverview_raw.file, samplenames)
 
-tplot_raw = fread(tplot_raw.file)
-tplot_trimmed = fread(tplot_raw.file)
+tplot_raw <- readData(tplot_raw.file, samplenames)
+tplot_trimmed <- readData(tplot_raw.file, samplenames)
 
-tplot = rbind(tplot_raw[type=="cycle_qual_counts",.(trimmed="trimmed",median=weightedMedian(y,z)),by=c("sample","readdirection","x")],tplot_trimmed[type=="cycle_qual_counts",.(trimmed="untrimmed",median=weightedMedian(y,z)),by=c("sample","readdirection","x")])
-tplot[,readdirection:=paste0(trimmed,".",readdirection)]
+tplot <- rbind(tplot_raw[type=="cycle_qual_counts",.(trimmed="trimmed",median=weightedMedian(y,z)),by=c("sample","read","x")],tplot_trimmed[type=="cycle_qual_counts",.(trimmed="untrimmed",median=weightedMedian(y,z)),by=c("sample","read","x")])
+tplot[,read:=paste0(trimmed,".",read)]
 
-bpin_info <- sampleoverview_raw[,c("sample","readdirection","basepairs")]
-bpin_info <- dcast(bpin_info,sample~readdirection,value.var = "basepairs")
+bpin_info <- sampleoverview_raw[,c("sample","read","basepairs")]
+bpin_info <- dcast(bpin_info,sample~read,value.var = "basepairs")
 colnames(bpin_info) <- c("sample","in1_bp","in2_bp")
 
-trim_summary<-fread(trim_summary.file)
+trim_summary<-readData(trim_summary.file, samplenames)
 trim_summary<-trim_summary[bpin_info,on="sample"]
 trim_summary[,dropped_reads:=in_reads-out_reads]
 setnames(trim_summary,c("out_bp","w/adapters","w/adapters2"),c("out1_bp","adapter1reads","adapter2reads"))
 trim_summary[,dropped1_bp:=in1_bp-out1_bp]
 trim_summary[,dropped2_bp:=in2_bp-out2_bp]
-tosetrelative.topairs = c("out_reads","adapter1reads","adapter2reads","dropped_reads")
+tosetrelative.topairs <- c("out_reads","adapter1reads","adapter2reads","dropped_reads")
 trim_summary[,(tosetrelative.topairs):=lapply(.SD,function(col)round(col/in_reads*100,2)),.SD=tosetrelative.topairs]
 
-trim_summary.tomelt = copy(trim_summary)
+trim_summary.tomelt <- copy(trim_summary)
 trim_summary.tomelt[,status:=NULL]
 numericals <- colnames(trim_summary.tomelt)[sapply(trim_summary.tomelt,is.numeric)]
 trim_summary.tomelt[,(numericals):=lapply(.SD,as.double),.SD=numericals]
@@ -143,7 +143,7 @@ bps <- melt(bps[,.(sample,dropped1_bp,dropped2_bp)],id.vars = "sample")
 bps[,Read:=gsub("dropped(\\d).+","R\\1",variable)]
 bps[,variable:=gsub("read\\d(.+)","\\1",variable)]
 bps = bps[,.(sample,Read,bpscut=value)]
-ggplotly(ggplot(bps) + aes(x=sample, y=bpscut,fill=Read) + scale_fill_brewer(palette = readdirection_palette) + geom_bar(stat="identity",position = "dodge") + xlab("Sample") + scale_y_continuous(labels = function(x) paste0(x, "‰")) + ylab("Basepairs cut"))
+ggplotly(ggplot(bps) + aes(x=sample, y=bpscut,fill=Read) + scale_fill_brewer(palette = read_palette) + geom_bar(stat="identity",position = "dodge") + xlab("Sample") + scale_y_continuous(labels = function(x) paste0(x, "‰")) + ylab("Basepairs cut"))
 ```
 
 
@@ -153,7 +153,7 @@ ggplotly(ggplot(bps) + aes(x=sample, y=bpscut,fill=Read) + scale_fill_brewer(pal
 ### Read length change
 
 ```{r}
-ggplot(trim_comparison) + aes(x=readdirection,lower=quantile25ReadLenChange,upper=quantile75ReadLenChange,middle=medianReadLenChange,ymin=minReadLenChange,ymax=maxReadLenChange,group=interaction(sample,readdirection),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length in bp") + labs(fill="Sample") + theme(legend.position = "bottom")
+ggplot(trim_comparison) + aes(x=read,lower=quantile25ReadLenChange,upper=quantile75ReadLenChange,middle=medianReadLenChange,ymin=minReadLenChange,ymax=maxReadLenChange,group=interaction(sample,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length in bp") + labs(fill="Sample") + theme(legend.position = "bottom")
 ```
 
 > The length change of the reads. The whiskers extend to minimum and maximum value.
@@ -164,7 +164,7 @@ Row
 ### Change of the average quality for each read
 
 ```{r}
-ggplot(trim_comparison) + aes(x=readdirection,lower=quantile25AvgQualChange,upper=quantile75AvgQualChange,middle=medianAvgQualChange,ymin=minAvgQualChange,ymax=maxAvgQualChange,group=interaction(sample,readdirection),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Average Sequence Quality change") + labs(fill="Sample") + theme(legend.position = "bottom")
+ggplot(trim_comparison) + aes(x=read,lower=quantile25AvgQualChange,upper=quantile75AvgQualChange,middle=medianAvgQualChange,ymin=minAvgQualChange,ymax=maxAvgQualChange,group=interaction(sample,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Average Sequence Quality change") + labs(fill="Sample") + theme(legend.position = "bottom")
 ```
 
 
@@ -174,7 +174,7 @@ ggplot(trim_comparison) + aes(x=readdirection,lower=quantile25AvgQualChange,uppe
 ### Median Cycle Quality Score
 
 ```{r}
-ggplotly(ggplot(tplot) + aes(x=x,y=median,color=sample,linetype=readdirection) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle") + theme(legend.title = element_blank()) )
+ggplotly(ggplot(tplot) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle") + theme(legend.title = element_blank()) )
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read direction
@@ -185,9 +185,9 @@ Row
 ### Trimmed files
 
 ```{r}
-sampleoverview_trim.vis = sampleoverview_trim[,.(sample,readdirection,minReadLen,maxReadLen,reads)]
-sampleoverview_trim.vis = fastqcreports[sampleoverview_trim.vis,on=c("sample","readdirection")]
-colnam = c(sample="Sample",readdirection="Read Direction",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
+sampleoverview_trim.vis <- sampleoverview_trim[,.(sample,read,minReadLen,maxReadLen,reads)]
+sampleoverview_trim.vis <- fastqcreports[sampleoverview_trim.vis,on=c("sample","read")]
+colnam = c(sample="Sample",read="Read Direction",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
 setnames(sampleoverview_trim.vis,names(colnam),colnam)
 datatable(sampleoverview_trim.vis,escape = F)
 ```

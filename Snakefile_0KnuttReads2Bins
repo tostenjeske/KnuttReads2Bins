@@ -1,20 +1,30 @@
 ##
 ## Snakefile_0KnuttReads2Bins - The Snakefile combining the subfiles.
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # It mainly takes care of sample read globbing. It also contains most
 # of the user facing rules.
 
 import os
+from itertools import product, repeat
+
 
 # Check Snakemake Version
 #snakemake.__version__
 
 configfile: "config.yml"
 
-# Reference data dir
+reads = ["R1","R2"]
+
+basedir_bench = config["output_dir"] + "/Benchmarking"
 basedir_dbs = config["reference_dir"]
+basedir_reporting = config["output_dir"] + "/Reports"
+basedir_data = config["output_dir"] + "/Data"
+
+lthread = config["threadcount_low_mem"]
+mthread = config["threadcount_med_mem"]
+hthread = config["threadcount_high_mem"]
 
 paired_readfile_pattern = os.path.join(config["read_input_dir"],
                                        config["paired_read_files"])
@@ -29,13 +39,16 @@ sample_names = list(set(paired_read_glob.sample))
 # A dict, key: sample name
 # value: dict (R1:read1file,R2:read2file)
 paired_reads = {sample: {"R1":expand(paired_readfile_pattern,
-                                     sample=sample,read="R1")[0],
+                                     sample=sample, read="R1")[0],
                          "R2":expand(paired_readfile_pattern,
-                                     sample=sample,read="R2")[0]} 
+                                     sample=sample, read="R2")[0]} 
                for sample in sample_names}
 
+# A sample and read pairing dict, convertible to a R data.frame
+samples_names_reads = {"sample": [sample for sample in sample_names for _ in reads], "read":[read for _ in sample_names for read in reads]}
+
 wildcard_constraints:
-   read = "R1|R2",
+   read = "|".join(reads),
    sample = "|".join(sample_names)
 
 include: "Snakefile_1PrepareReads"
@@ -43,237 +56,64 @@ include: "Snakefile_2ClassifyReads"
 include: "Snakefile_3AnnotateReads"
 include: "Snakefile_4Assemble"
 include: "Snakefile_5Binning"
-include: "Snakefile_6Data"
-include: "Snakefile_7Reports"
 
-##
-## Read Preparation - Raw
-##
-
-# Request all raw FASTQC reports
-rule rawQC:
+rule all:
+   version: "1.0"
    input:
-      expand(rules.fastqc_raw_file.output,sample=sample_names,
-             read=["R1","R2"])
+      expand(classfication_fastq(), sample=sample_names),
+      expand(trimming_res + "R1_adptr_tr.fastq.gz", sample=sample_names),
+      expand(merge_data + "/{sample}_qtr_{trimmed}.tsv",  sample=sample_names, trimmed=trimmed_val),
+      expand(merge_data_file + "overview.tsv", trimmed=adpt_poss, sample=sample_names),
+      expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names),
+      expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names),
+      expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
+      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names),
+      expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv", dbswithkrona=integrateddbs + customdbs, sample=sample_names),
+      expand(basedir_assembly + "/MEGAHIT/{sample}/final.contigs.fa", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_assembly_graph.tsv", sample=sample_names),
+      expand(basedir_assembly + "/Graphs/{sample}_k{kmer}_graph.png", sample=sample_names, kmer=config["kmer_sizes_graph"]),
+      expand(basedir_data_assembly + "/{sample}_cov_pileup_summary.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_metaquast.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_contigs_sourmash_signature.tsv", sample=sample_names),
+      expand(basedir_data_assembly + "/{sample}_contigs_cat.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_checkm.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_checkm_profile.tsv",  sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_binmap.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/{sample}_bat.tsv", sample=sample_names)
+   message:
+      "Ran everything, yay!"
 
-# Request raw fastq data
-rule rawSeqData:
+
+rule allReport:
+      version: "1.0"
+      input:
+         basedir_reporting + "/1raw-reads.html",
+         basedir_reporting + "/2trimming.html",
+         basedir_reporting + "/3read-merging.html",
+         basedir_reporting + "/4read-ana-prep.html",
+         basedir_reporting + "/5.1SSUreport.html",
+         basedir_reporting + "/5.2kaijureport.html",
+         basedir_reporting + "/5.3sourmashReport.html",
+         basedir_reporting + "/SSU_krona.html",
+         basedir_reporting + "/kaiju_krona.html",
+         basedir_reporting + "/sourmash_krona.html",
+         expand(basedir_reporting + "/6readanno_{dbswithkrona}.html", dbswithkrona=integrateddbs + customdbs),
+         expand(basedir_reporting + "/readanno_{dbswithkrona}_krona.html", dbswithkrona=integrateddbs + customdbs),
+         basedir_reporting + "/readanno_CAZyDB_funkrona.html",
+         basedir_reporting + "/7assembly.html",
+         basedir_reporting + "/CAT_krona.html",
+         basedir_reporting + "/sourmash_contig_krona.html",
+         basedir_reporting + "/8binning.html",
+         basedir_reporting + "/BAT_krona.html"
+
+rule refData:
+   version: "1.0"
    input:
-      expand(rules.seqdata.output, seqtype="raw", seqdat=seqdata_files),
-
-##
-## Read Preparation - Adapter trimming
-##
-
-# Trim adapters:
-rule trimAdapters:
-   input:
-      expand(rules.cutadapt_paired_reads.output, sample=sample_names)
-
-# Request all trimming FASTQC reports
-rule trimQC:
-   input:
-      lambda w: [fastQC_for_file(f) for f in rules.trimAdapters.input],
-
-# Request trimming fastq data
-rule trimmedSeqData:
-   input:
-      expand(rules.seqdata.output, seqtype="trimmed", seqdat=seqdata_files),
-
-
-##
-## Read Preparation - Read merging
-##
-
-# Produces the merging results for trimmed and untrimmed files
-rule merge:
-   input:
-      expand(rules.merge_paired_reads.output[:3], trimmed=adpt_poss, sample=sample_names)
-
-# Request all merging FASTQC reports
-rule mergeQC:
-   input:
-      lambda w: [fastQC_for_file(f) for f in rules.merge.input],
-      
-# Request merging fastq data
-rule mergeSeqData:
-   input:
-      expand(rules.seqdata.output, seqtype=["merging_tr","merging_untr"], seqdat=seqdata_files),
-
-##
-## Read Preparation - Read annotation prep
-##
-
-# Quality trimming:
-rule qualityTrim:
-   input:
-       expand(rules.qualtrim_merge_reads.output, trimmed=adpt_poss, sample=sample_names, mergeres=["merged", "unmgd_R1"])
-
-# Produce the FASTQC reports for all qc trimmed files
-rule qualityTrimQC:
-   input:
-      lambda w: [fastQC_for_file(f) for f in rules.qualityTrim.input]
-
-# Request quality trimmed fastq data
-rule qualityTrimSeqData:
-   input:
-      expand(rules.seqdata.output, seqtype=["qctrimmed_tr","qctrimmed_tr"], seqdat=seqdata_files),
-
-# Cutadapt trimming data
-rule qualityTrimData:
-   input:
-      expand(rules.qulitytrim_data.output,trimmed=adpt_poss)
-
-# Request FASTQC files for annotation
-rule annotationReads:
-   input:
-      expand(classfication_fastq(), sample=sample_names)
-
-# Request FASTQC files for annotation
-rule annotationReadsQC:
-   input:
-      lambda w: [fastQC_for_file(f) for f in rules.annotationReads.input]
-
-# Request FASTQC files for annotation
-rule annotationReadsSeqData:
-   input:
-      expand(rules.seqdata.output, seqtype="readanno", seqdat=seqdata_files),
-
-##
-## Read Preparation - Read annotation prep
-##
-
-# Run all read prep tooling steps
-rule readPreparation:
-   input:
-      rules.trimAdapters.input,
-      rules.merge.input,
-      rules.qualityTrim.input,
-      rules.annotationReads.input
-
-# Produce the FASTQC reports for all read prep files
-rule readPreparationQC:
-   input:
-      lambda w: [fastQC_for_file(f) for f in rules.readPreparation.input]
-
-
-##
-## Read classification
-##
-
-# Run all samples through SSU filtering 
-rule filterSSUreads:
-   input:
-      expand(rules.filter_ssu_reads.output,sample=sample_names)
-
-# Run SINA on all SSUs
-rule classifySSUreads:
-   input:
-      expand(rules.classify_ssu.output,sample=sample_names)
-
-# Run Kaiju on all reads
-rule kaijuAllreads:
-   input:
-      expand(rules.kaiju_sample.output,sample=sample_names)
-
-# Run both read classification tools
-rule classifyReads:
-   input:
-      rules.classifySSUreads.input,
-      rules.kaijuAllreads.input
-
-
-
-##
-## Read annotation
-##
-
-# Use DIAMOND on all reads.
-rule annotateReads:
-   input:
-      expand(rules.diamond_run.output,sample=sample_names,
-            blastdb=customdbs+integrateddbs)
-
-##
-## Assembly
-##
-
-# Assemble all
-rule assemble:
-   input:
-      expand(rules.megahit_assembly.output,sample=sample_names)
-
-# Assembly graphs
-rule assemblyGraphs:
-   input:
-      expand(rules.bandage_info.output,sample=sample_names,kmer=config["kmer_sizes_graph"]),
-      expand(rules.bandage_image.output,sample=sample_names,kmer=config["kmer_sizes_graph"])
-
-# Assembly coverage
-rule coverageContigs:
-   input:
-      expand(rules.cal_map_cov.output,sample=sample_names)
-
-# Assembly MetaQUAST
-rule metaQUAST:
-   input:
-      expand(rules.metaquast_sample.output,sample=sample_names),
-
-# Contig classification
-rule classifyContigs:
-   input:
-      expand(basedir_assembly+"/contig_classification/{sample}/{sample}.contig2classification.named.txt",
-             sample=sample_names)
-
-##
-## Binning
-##
-
-# Bin all samples
-rule binAll:
-   input:
-      expand(rules.metabat.output,sample=sample_names)
-
-# Run checkm
-rule checkM:
-   input:
-      expand(rules.checkm_sample.output,sample=sample_names)
-
-# Bin classification
-rule classifyBins:
-   input:
-      expand(basedir_binning+"/bin_classification/{sample}/{sample}.bin2classification.named.txt",
-             sample=sample_names)
-
-
-##
-## Reporting
-##
-rule report:
-   input:
-      rules.rawReport.output,
-      rules.trimReport.output,
-      rules.mergeReport.output,
-      rules.readanaprepreport.output,
-      rules.ssureport.output,
-      rules.kaijureport.output,
-      expand(rules.krona.output,krona_type=("readclass_SSU","readclass_kaiju")),
-      expand(rules.readannoreport_db.output,dbswithkrona=integrateddbs+customdbs),
-      expand(rules.kronawithdb.output,dbswithkrona=integrateddbs+customdbs),
-      rules.assemblyreport.output,
-      rules.binningreport.output,      
-      
-##
-## Data
-##
-rule data:
-   input:
-      rules.filter_ssu_reads.input.db,
-      rules.classify_ssu.input.db,
-      rules.kaiju_sample.input.db,
-      expand(rules.diamond_run.input.db, blastdb=integrateddbs+customdbs),
-      rules.metaquast_silva.output,
-      rules.index_cat_bat.output,
-      rules.checkm_data.output,
-      rules.ncbi_translator.output,
-      
+      rules.classifyReadsRefData.input,
+      rules.readAnnoRefData.input,
+      rules.catRefData.input,
+      rules.assemblyRefData.input,

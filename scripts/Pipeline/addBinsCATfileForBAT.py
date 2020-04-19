@@ -3,7 +3,7 @@
 ##
 ## addBinsCATfileForBAT.py - Add bin name to the contigs from the CAT proteins
 ##
-## Knutt.org/Knutt2Reads2Bins
+## Knutt.org/KnuttReads2Bins
 
 # The BAT tool can't use the predicted proteins from CAT, because the
 # contigs lack the bin name.

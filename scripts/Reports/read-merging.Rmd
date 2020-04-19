@@ -10,7 +10,6 @@ output:
 
 ```{r, include=FALSE,message=F}
 suppressPackageStartupMessages(require(data.table))
-if(exists("snakemake")){
   merge_untrimmed.file <- snakemake@input[["mergedata_untrimmed"]]
   merge_trimmed.file <- snakemake@input[["mergedata_trimmed"]]
   merge_inserts.file <- snakemake@input[["mergdata_trimmed_details"]]
@@ -29,31 +28,30 @@ if(exists("snakemake")){
   fastqcreports.utr = as.data.table(snakemake@params[["merging_untrimmed_fastqc"]])
   fastqcreports.utr = fastqcreports.utr[,qcreport:=snakemake@input[["merging_untrimmed_fastqc"]]]
   
-}
-
 files = c(merge_untrimmed.file,merge_trimmed.file,merge_inserts.file,sampleoverview_merge.file,tplot_merge.file,sampleoverview_merge_untr.file,tplot_merge_untr.file)
 
 source(commonscript.file)
 commonOptions(threads)
-require(matrixStats)
+suppressPackageStartupMessages(require(matrixStats))
+samplenames <- list(sample=snakemake@params[["samples"]])
 
 
-merge_untrimmed<-fread(merge_untrimmed.file)
-merge_trimmed<-fread(merge_trimmed.file)
+merge_untrimmed<-readData(merge_untrimmed.file, samplenames)
+merge_trimmed<-readData(merge_trimmed.file, samplenames)
 
 
 
-merge_inserts<-fread(merge_inserts.file,sep="\t",fill=T)
+merge_inserts<-readData(merge_inserts.file, samplenames, readfun=function(...)fread(..., sep="\t",fill=T))
 merge_inserts<-merge_inserts[insert!=-1,density(insert)[c("x","y")],by="sample"]
 
-sampleoverview_merge <- fread(sampleoverview_merge.file)
-sampleoverview_merge = fastqcreports.tr[sampleoverview_merge,on=c("sample","readdirection")]
-tplot_merge <- fread(tplot_merge.file)
+sampleoverview_merge <- readData(sampleoverview_merge.file, samplenames)
+sampleoverview_merge <- fastqcreports.tr[sampleoverview_merge,on=c("sample","read")]
+tplot_merge <- readData(tplot_merge.file, samplenames)
 
 
-sampleoverview_merge_untr <- fread(sampleoverview_merge_untr.file)
-sampleoverview_merge_untr = fastqcreports.utr[sampleoverview_merge_untr,on=c("sample","readdirection")]
-tplot_merge_untr <- fread(tplot_merge_untr.file)
+sampleoverview_merge_untr <- readData(sampleoverview_merge_untr.file, samplenames)
+sampleoverview_merge_untr = fastqcreports.utr[sampleoverview_merge_untr,on=c("sample","read")]
+tplot_merge_untr <- readData(tplot_merge_untr.file, samplenames)
 
 sampleoverview_merge[,trimmed:="Trimmed"]
 sampleoverview_merge_untr[,trimmed:="Untrimmed"]
@@ -62,7 +60,7 @@ sampleoverview = rbind(sampleoverview_merge,sampleoverview_merge_untr)
 tplot_merge[,trimmed:="Trimmed"]
 tplot_merge_untr[,trimmed:="Untrimmed"]
 tplot = rbind(tplot_merge,tplot_merge_untr)
-tplot[,readdirection:=paste0(trimmed,".",readdirection)]
+tplot[,read:=paste0(trimmed,".",read)]
 
 ```
 
@@ -124,8 +122,8 @@ Row
 ### Merging results
 
 ```{r}
-sampleoverview.vis = sampleoverview[,.(sample,trimmed,readdirection,file,qcreport,minReadLen,maxReadLen,reads)]
-colnam = c(sample="Sample",trimmed="Trimmed",readdirection="Group",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
+sampleoverview.vis = sampleoverview[,.(sample,trimmed,read,file,qcreport,minReadLen,maxReadLen,reads)]
+colnam = c(sample="Sample",trimmed="Trimmed",read="Group",qcreport="FASTQC Report",minReadLen="Shortest Read [bp]",maxReadLen="Longest Read [bp]",reads="Number of read pairs")
 setnames(sampleoverview.vis,names(colnam),colnam)
 datatable(sampleoverview.vis,escape = F)
 ```
@@ -138,7 +136,7 @@ Row
 ### Read lengths after merging
 
 ```{r}
-ggplot(sampleoverview) + aes(x=readdirection,lower=quantile25ReadLen,upper=quantile75ReadLen,middle=medianReadLen,ymin=minReadLen,ymax=maxReadLen,group=interaction(sample,trimmed,readdirection),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length in bp") + facet_wrap(~trimmed) + labs(fill="Sample") + theme(legend.position = "bottom")
+ggplot(sampleoverview) + aes(x=read,lower=quantile25ReadLen,upper=quantile75ReadLen,middle=medianReadLen,ymin=minReadLen,ymax=maxReadLen,group=interaction(sample,trimmed,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length in bp") + facet_wrap(~trimmed) + labs(fill="Sample") + theme(legend.position = "bottom")
 ```
 
 > The distribution of the read lengths within each sample for each merging operation as a boxplot, the whiskers extend to the min/max values.
@@ -149,7 +147,7 @@ ggplot(sampleoverview) + aes(x=readdirection,lower=quantile25ReadLen,upper=quant
 ```{r}
 dat = tplot[type=="readlength_density" & x>=min(sampleoverview$minReadLen) & x<=max(sampleoverview$maxReadLen),]
 #dat = tplot[type=="gccontent_density" & x>=0 & x<=1,]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + facet_wrap(~trimmed) +  ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + facet_wrap(~trimmed) +  ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The read length in each sample and merge result. The plot has been trimmed at the actual min and max read lengths.
@@ -163,7 +161,7 @@ Row
 ```{r}
 dat = tplot[type=="avg_seq_qual_dens",]
 #dat = tplot[type=="gccontent_density" & x>=0 & x<=1,]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank()) + facet_wrap(~trimmed))
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank()) + facet_wrap(~trimmed))
 ```
 
 > The (estimated) density distribution of the average Phred score for the sequences. This plot has not been trimmed!
@@ -172,8 +170,8 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=readdirection,color=sample)  + geom_
 ### Cycle Quality Scores
 
 ```{r}
-dat = tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","readdirection","x","trimmed")]
-ggplotly(ggplot(dat) + aes(x=x,y=median,color=sample,linetype=readdirection) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank())+ facet_wrap(~trimmed))
+dat = tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","read","x","trimmed")]
+ggplotly(ggplot(dat) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank())+ facet_wrap(~trimmed))
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read type

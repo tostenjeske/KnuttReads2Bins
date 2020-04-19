@@ -10,48 +10,43 @@ output:
 
 
 ```{r, include=FALSE}
-if(exists("snakemake")){
-  checkm.path = snakemake@input[["checkm"]]
-  tetras.path = snakemake@input[["tretras"]]
-  checkmcov.path = snakemake@input[["checkmcov"]]
-  commonscript.file = snakemake@input[["commons"]]
-  threads=snakemake@threads
-}else{
-  checkm.path = "../../../output/Analysis/Binning/checkm_and_profile.tsv"
-  tetras.path = "../../../output/Analysis/Binning/checkm/all_tetras.tsv"
-  checkmcov.path = "../../../output/Analysis/Binning/checkm/all_checkm_cov.tsv"
-  commonscript.file = "commonReport.R"
-  threads=NA
-}
-files = c(checkm.path,tetras.path,checkmcov.path)
+checkm.path <- snakemake@input[["checkmlineage"]]
+tetras.path <- snakemake@input[["tetras"]]
+checkmcov.path <- snakemake@input[["checkmcov"]]
+profile.path <- snakemake@input[["checkmprofile"]]
+commonscript.file <- snakemake@input[["commons"]]
+samplenames <- list(sample=snakemake@params[["samples"]])
+files <- unlist(c(checkm.path,tetras.path,checkmcov.path))
 source(commonscript.file)
 suppressPackageStartupMessages(library(ggfortify))
 suppressPackageStartupMessages(library(viridis))
-commonOptions(threads)
+commonOptions(1)
 
-save.image()
+checkm <- readData(checkm.path, samplenames)
+tetras <- readData(tetras.path, samplenames)
+checkmcov <- readData(checkmcov.path, samplenames)
+profile <- readData(profile.path, samplenames)
+checkm <- merge(checkm, profile, by=c("sample", "bin"))
 
-checkm = fread(checkm.path)
-tetras = fread(tetras.path)
-checkmcov = fread(checkmcov.path)
+checkmcov[bin=="unbinned", binid:=-1]
+checkmcov[bin!="unbinned", binid:=as.numeric(sapply(strsplit(bin,".",fixed=T),"[",2))]
+checkmcov[,contigid:=tstrsplit(contigid, " ", fixed=T, keep = 1)]
+checkmcov[, bin:=binid]
+checkmcov[, binid:=NULL]
+tetras <- merge(checkmcov[bin!=-1,.(sample,bin,contigid,avgcov)],tetras,by=c("sample","contigid"))
 
-checkmcov[`Bin Id`=="unbinned",BinId:=-1]
-checkmcov[`Bin Id`!="unbinned",BinId:=as.numeric(sapply(strsplit(`Bin Id`,".",fixed=T),"[",2))]
-checkmcov[,`Sequence Id`:=tstrsplit(`Sequence Id`," ",fixed=T,keep = 1)]
-tetras = merge(checkmcov[`BinId`!=-1,.(sample,`BinId`,`Sequence Id`,Coverage)],tetras,by=c("sample","Sequence Id"))
-
-tetras = split(tetras,tetras$sample)
+tetras <- split(tetras,tetras$sample)
 gc()
-tetras.pca = lapply(tetras,function(df)prcomp(df[,c(which(grepl(pattern = "[AGCT]{4}",colnames(df))),which(colnames(df)=="Coverage")),with=F], center = TRUE, scale = TRUE))
-tetras.pca.summaries = lapply(tetras.pca, summary)
+tetras.pca <- lapply(tetras,function(df)prcomp(df[,c(which(grepl(pattern = "[AGCT]{4}",colnames(df))),which(colnames(df)=="Coverage")),with=F], center = TRUE, scale = TRUE))
+tetras.pca.summaries <- lapply(tetras.pca, summary)
 
 pcaSummary2df = function(pcasummary){
   df = as.data.frame(t(pcasummary$importance))
   df$PC=as.numeric(gsub("PC(\\d+)","\\1",rownames(df)))
   df
 }
-tetras.pca.summaries.dfs = lapply(tetras.pca.summaries, pcaSummary2df)
-tetras.pca.df = rbindlist(lapply(names(tetras.pca.summaries.dfs),function(sample)cbind(sample,tetras.pca.summaries.dfs[[sample]])))
+tetras.pca.summaries.dfs <- lapply(tetras.pca.summaries, pcaSummary2df)
+tetras.pca.df <- rbindlist(lapply(names(tetras.pca.summaries.dfs),function(sample)cbind(sample,tetras.pca.summaries.dfs[[sample]])))
 
 ```
 
@@ -103,7 +98,7 @@ ggplotly(ggplot(checkm) + aes(x=sample,fill=sample) + geom_bar() + theme(legend.
 ### CheckM Bin comparison
 
 ```{r}
-ggplotly(ggplot(checkm) + aes(x=Completeness,y=Contamination,color=sample,label=`Bin Id`) + geom_point() + scale_y_reverse() + labs(color="Sample") + scale_color_brewer(palette = sample_palette))
+ggplotly(ggplot(checkm) + aes(x=completeness,y=contamination,color=sample,label=`bin`) + geom_point() + scale_y_reverse() + labs(color="Sample") + scale_color_brewer(palette = sample_palette))
 ```
 
 Row
@@ -111,7 +106,7 @@ Row
 
 
 ```{r,results="asis"}
-constructPlot <-function(samplename)ggplotly(autoplot(tetras.pca[[samplename]],data=as.data.frame(tetras[[samplename]]),colour="BinId")+scale_color_viridis())
+constructPlot <-function(samplename)ggplotly(autoplot(tetras.pca[[samplename]],data=as.data.frame(tetras[[samplename]]),colour="bin")+scale_color_viridis())
 for(samplename in names(tetras.pca)){
   drawplotasis(paste0("Tetra PCA Biplot: ",samplename),subtitle = "The first two components of the principal components. The input matrix included the tetracnucleotid frequencies and the coverage.",plot = constructPlot(samplename))
   drawrow()
@@ -131,15 +126,15 @@ ggplotly(ggplot(tetras.pca.df) + aes(x=PC,y=`Standard deviation`,color=sample,la
 otherlimit=2
 
 for(samplename in unique(checkm$sample)){
-  checkm = rbind(checkm,data.frame(sample=samplename,`Bin Id`="unbinned",`% community`=100-sum(checkm[sample==samplename,`% community`]),check.names=F),fill=T)
-  other = sum(checkm[sample==samplename&`% community`<otherlimit,`% community`])
-  other.n = checkm[sample==samplename&`% community`<otherlimit,.N]
+  checkm = rbind(checkm,data.frame(sample=samplename,`bin`="unbinned",ofcommunity_perc=100-sum(checkm[sample==samplename,ofcommunity_perc]),check.names=F),fill=T)
+  other = sum(checkm[sample==samplename&ofcommunity_perc<otherlimit,ofcommunity_perc])
+  other.n = checkm[sample==samplename&ofcommunity_perc<otherlimit,.N]
   if(other.n>0){
-  checkm = rbind(checkm[sample!=samplename|(sample==samplename&`% community`>=otherlimit)],data.frame(sample=samplename,`Bin Id`=paste0(as.character(other.n)," Other (Limit: ",as.character(otherlimit),"%)"),`% community`=other,check.names=F),fill=T)
+  checkm = rbind(checkm[sample!=samplename|(sample==samplename&ofcommunity_perc>=otherlimit)],data.frame(sample=samplename,`bin`=paste0(as.character(other.n)," Other (Limit: ",as.character(otherlimit),"%)"),ofcommunity_perc=other,check.names=F),fill=T)
   }
 }
 
-ps <- lapply(split(checkm,checkm$sample),function(df)plot_ly(df,labels=~`Bin Id`,values=~`% community`,type="pie",text=~`Marker lineage`,textinfo = 'label', hoverinfo = 'text+percent'))
+ps <- lapply(split(checkm,checkm$sample),function(df)plot_ly(df,labels=~`bin`,values=~ofcommunity_perc,type="pie",text=~lineage_markers,textinfo = 'label', hoverinfo = 'text+percent'))
 
 for(i in seq_along(ps)){
   if(i%%2!=0)cat("\nRow data-height{700}\n--------------------------------------\n")
