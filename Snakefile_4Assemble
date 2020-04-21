@@ -79,7 +79,7 @@ rule megahit_fastg:
 
 # Generate Bandage info file
 rule bandage_info_kmer:
-   version: "1.0"
+   version: "1.1"
    input:
       rules.megahit_fastg.output
    output:
@@ -93,7 +93,7 @@ rule bandage_info_kmer:
 
 
 rule bandage_info_sample:
-   version: "1.0"
+   version: "1.1"
    input:
       files = expand(basedir_data_assembly + "/{sample}_assembly_graph_k{kmer}.tsv", kmer=config["kmer_sizes_graph"], allow_missing=True)
    params:
