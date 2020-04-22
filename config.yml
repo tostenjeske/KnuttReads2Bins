@@ -105,9 +105,9 @@ read_sampling: 0
 #
 
 # Version of the silvadb
-silva_version: "132"
+silva_version: "138"
 # Path to the silva arb for this version
-silva_arb: "release_132/ARB_files/SILVA_132_SSURef_NR99_13_12_17_opt.arb.gz"
+silva_arb: "release_138/ARB_files/SILVA_138_SSURef_NR99_05_01_20_opt.arb.gz"
 # The (approx) minimum identity to a SSU gene for
 # BBmap filtering
 ssu_min_id: 0.76

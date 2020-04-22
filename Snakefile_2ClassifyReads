@@ -14,7 +14,7 @@ basedir_readclass = config["output_dir"]+"/ReadClassification"
 basedir_bench_readclass = basedir_bench + "/ReadClassification"
 basedir_data_readclass = basedir_data + "/ReadClassification"
 
-silva_fasta_url = "https://www.arb-silva.de/fileadmin/silva_databases/release_{config[silva_version]}/Exports/SILVA_{config[silva_version]}_SSURef_Nr99_tax_silva.fasta.gz"
+silva_fasta_url = "https://www.arb-silva.de/fileadmin/silva_databases/release_{config[silva_version]}/Exports/SILVA_{config[silva_version]}_SSURef_NR99_tax_silva.fasta.gz"
 sourmash_readclass_k = "51"
 
 # 51
