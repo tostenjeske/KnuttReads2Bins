@@ -219,9 +219,10 @@ rule SSUKrona:
    version: "1.0"
    input:
       expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names),
-      basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"
+      #basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"
    params:
-      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names) + [basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"], sample_names + ["Database"])]
+#      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names) + [basedir_dbs + "/SSU/SILVA_" + config["silva_version"] + "_SSURef_Nr99_tax_silva_krona.tsv"], sample_names + ["Database"])]
+      pairs = [file + "," + name for file, name in zip(expand(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv", sample=sample_names), sample_names)]
    output:
       basedir_reporting + "/SSU_krona.html"
    conda:
