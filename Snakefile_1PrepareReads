@@ -539,41 +539,15 @@ rule mergeReport:
       "scripts/Reports/read-merging.Rmd"
 
 
-# Perform quality trimming on merge results
-rule qualtrim_merge_reads:
-   version: "1.0"
-   input:
-      merge_res_file + "{qtr_read}.fastq.gz"
-   output:
-      seq = temp(merge_res_file + "{qtr_read}_qtr.fastq.gz"),
-      cut = temp(merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv"),
-   log:
-      mask = merge_res_file + "{qtr_read}_mask.log",
-   benchmark:
-      basedir_bench_prep + "/qtr_{trimmed}_{sample}_{qtr_read}.tsv"
-   threads:
-      4
-   resources:
-      mem_mb = 16000
-   conda:
-      "envs/KnuttReads2Bins.yml"
-   message:
-      "Quality trimming reads for {wildcards.sample} ({wildcards.trimmed}) {wildcards.qtr_read}"
-   shell:
-      ("bbmask.sh -Xmx{resources.mem_mb}m in={input} out=stdout.fq entropy={config[low_complex_entropy]} "
-       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {config[classification_qual]} --report=minimal "
-       "-m {config[classification_minlen]} -o {output.seq} - &> {output.cut}")
-
-
 # Trim low abundance k-mers
 rule trim_kmers:
-   version: "1.0"
+   version: "1.1"
    input:
-      merge_res_file + "{qtr_read}_qtr.fastq.gz"
+      merge_res_file + "{qtr_read}.fastq.gz"
    params:
-      res = "{sample}_merge_{trimmed}_{qtr_read}_qtr.fastq.gz.abundtrim"
+      res = "{sample}_merge_{trimmed}_{qtr_read}.fastq.gz.abundtrim"
    output:
-      seq = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz",
+      seq = temp(merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"),
       cut = temp(merge_data + "/{sample}_{qtr_read}_kmertr_{trimmed}.tsv"),
    log:
       mask = merge_res_file + "{qtr_read}_qtr_kmertr.log",
@@ -593,13 +567,39 @@ rule trim_kmers:
       "mv $(echo $(date '+trim-low-abund-%Y-%m-%dT')*.info.tsv) {output.cut}")
 
 
+# Perform quality trimming on merge results
+rule qualtrim_merge_reads:
+   version: "1.1"
+   input:
+      merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
+   output:
+      seq = merge_res_file + "{qtr_read}_qtr.fastq.gz",
+      cut = temp(merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv"),
+   log:
+      mask = merge_res_file + "{qtr_read}_mask.log",
+   benchmark:
+      basedir_bench_prep + "/qtr_{trimmed}_{sample}_{qtr_read}.tsv"
+   threads:
+      4
+   resources:
+      mem_mb = 16000
+   conda:
+      "envs/KnuttReads2Bins.yml"
+   message:
+      "Quality trimming reads for {wildcards.sample} ({wildcards.trimmed}) {wildcards.qtr_read}"
+   shell:
+      ("bbmask.sh -Xmx{resources.mem_mb}m in={input} out=stdout.fq entropy={config[low_complex_entropy]} "
+       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {config[classification_qual]} --report=minimal "
+       "-m {config[classification_minlen]} -o {output.seq} - &> {output.cut}")
+
+
 # Combine the merged and unmerged R1 reads into one file
 # R2 is excluded, as it often has the same annotation as R1
 # More sophisticated processing would allow R2 inclusion
 rule classification_fastq:
-   version: "1.0"
+   version: "1.1"
    input:
-      expand(merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz",
+      expand(merge_res_file + "{qtr_read}_qtr.fastq.gz",
              sample="{sample}", trimmed="{trimmed}",
              qtr_read=qtr_reads)
    params:
@@ -645,7 +645,7 @@ def classfication_fastq():
 rule qtrseqdata_sample_read:
    version: "1.0"
    input:
-      reads = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
+      reads = merge_res_file + "{qtr_read}_qtr.fastq.gz"
    output:
       overview = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_overview.tsv"),
       toplot = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_plotdata.tsv"),
@@ -765,8 +765,11 @@ rule combine_qual_mask_kmer_sample:
    message:
       "Combining masking and quality trimming data for {wildcards.sample} ({wildcards.trimmed})"
    shell:
-      ("temp_file=$(mktemp) && cut --complement -f1 {input.mask} | paste {input.trim} - > $temp_file && "
-      "cut --complement -f1,3,4,5,6 {input.kmer} | paste $temp_file - > {output} && rm $temp_file")
+      ("temp_dir=$(mktemp -d) && cut --complement -f3,4,5,6 {input.kmer} > $temp_dir/kmer.tsv && "
+       "cut --complement -f1 {input.mask} > $temp_dir/mask.tsv && "
+       "cut --complement -f1 {input.trim} > $temp_dir/trim.tsv && "
+       "paste $temp_dir/kmer.tsv $temp_dir/mask.tsv $temp_dir/trim.tsv > {output} && "
+       "rm $temp_dir/kmer.tsv $temp_dir/mask.tsv $temp_dir/trim.tsv && rmdir $temp_dir")
 
 
 # Compare FASTQ file before to after trim
