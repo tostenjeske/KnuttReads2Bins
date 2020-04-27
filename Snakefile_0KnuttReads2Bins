@@ -83,7 +83,8 @@ rule all:
       expand(basedir_data_binning + "/{sample}_binmap.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv", sample=sample_names),
-      expand(basedir_data_binning + "/{sample}_bat.tsv", sample=sample_names)
+      expand(basedir_data_binning + "/{sample}_bat.tsv", sample=sample_names),
+      basedir_data_binning + "/sourmash_bin_comparison.tsv"
    message:
       "Ran everything, yay!"
 

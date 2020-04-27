@@ -543,10 +543,14 @@ rule sourmash_compare_samples:
    input:
       expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, sample=sample_names),
    params:
-      header = ",".join(sample_names),
-      k = sourmash_readclass_k
+      regex = r'output/ReadPrep/AnalysisReads_tr/(.+)/\1_analysis_tr_unsmpld.fastq.gz$',
+      k = sourmash_readclass_k,
+      dir = basedir_data_readclass
    output:
-      basedir_data_readclass + "/sourmash_sample_comparison.tsv"
+      tsv = basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      np = temp(basedir_data_readclass + "/sourmash_sample_comparison"),
+      labels = temp(basedir_data_readclass + "/sourmash_sample_comparison.labels.txt"),
+      png = expand(basedir_data_readclass + "/sourmash_sample_comparison.{type}.png", type=["dendro","hist","matrix"], allow_missing=True)
    log:
       basedir_readclass + "/sourmash/sourmash_sample_comparison.log"
    benchmark:
@@ -556,7 +560,11 @@ rule sourmash_compare_samples:
    message:
       "Comparing the samples using sourmash"
    shell:
-      "sourmash compare -k {params.k} {input} --csv {output} &> {log} && sed -i -e '1c {params.header}' {output} && sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output}"
+      ("{{ sourmash compare -k {params.k} {input} --csv {output.tsv} --output {output.np} && "
+       "scripts/Pipeline/sourmashlabels.py {output.labels} '{params.regex}' && "
+       "sourmash plot --labels --output-dir {params.dir} {output.np} ; }} &> {log} && "
+       "sed -i -e $(echo 1c$(cat {output.labels} | tr '\n' ',')) {output.tsv} && "
+       "sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output.tsv}")
 
 
 rule sourmash:
