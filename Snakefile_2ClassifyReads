@@ -163,7 +163,7 @@ rule classify_ssu:
       ("sina -i {input.toalign} -o {output.fasta} -r {input.db} -S --meta-fmt csv "
        "-v --fs-msc={config[sina_min_sim]} --search-min-sim={config[sina_min_sim]} "
        "--search-max-result={config[sina_max_hits]} --lca-quorum={config[sina_lca_quorum]} "
-       "--lca-fields tax_slv,tax_embl,tax_gg,tax_rdp,tax_gg -p {threads} "
+       "--lca-fields tax_slv,tax_embl,tax_gg,tax_rdp,tax_gg,tax_gtdb -p {threads} "
        "-t --fs-engine internal &> {log}")
 
 
