@@ -46,7 +46,7 @@ def_adapter_conf: "-a CTGTCTCTTATACACATCT -A CTGTCTCTTATACACATCT --trim-n --max-
 adapter_conf:
   _examplesample: "-a CTGTCTCTTATACACATCT -A CTGTCTCTTATACACATCT --trim-n --max-n 0.1"
 # Minimum adapter overlap threshold for trimming (cutadapt -O)
-minimum_adapter_overlap: 6
+minimum_adapter_overlap: 3
 # Allowed adapter read errors per adapter bp (cutadapt -e )
 adapter_error_rate: 0.1
 # Reads shorter than this treshold after adapter
