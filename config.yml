@@ -120,8 +120,7 @@ sina_max_hits: 10
 # the lowest common ancestor determination (sina --lca-quorum)
 sina_lca_quorum: 0.7
 # The sina lca field to use for taxonomy construction
-#sina_taxfield: "lca_tax_slv" 
-sina_taxfield: "lca_tax_gtdb"
+sina_taxfield: "lca_tax_slv"
 
 # Kaiju db to generate and use
 # See the following link for options and memory requirements
