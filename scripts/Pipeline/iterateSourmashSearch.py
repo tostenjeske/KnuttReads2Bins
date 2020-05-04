@@ -17,6 +17,8 @@ logfile = snakemake.log[0]
 with tempfile.NamedTemporaryFile('r+t') as tmpsig, tempfile.NamedTemporaryFile('r+t') as tmpcsv:
     with open(sigfile, 'rt') as sigfile, open(outfile, 'wt') as outfile, open(logfile, 'wt') as logfile:
      sigiter = sourmash.signature.load_signatures(sigfile)
+     outfile.write(header)
+     outfile.write('\n')
      for sig in sigiter:
             binfile = sig.name()
             binname = os.path.basename(binfile)

@@ -163,13 +163,13 @@ rule sourmash_bins_describe:
 
 
 rule sourmash_bins_search:
-   version: "1.0"
+   version: "1.1"
    input:
       sig = expand(basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.sig", k=sourmash_readclass_k, allow_missing=True)[0],
       db = basedir_dbs + "/Sourmash/" + sourmash_lca_name
    params:
       params = ['sourmash', 'search', '--containment'],
-      header = 'bin\tsimilarity\tname\tfilename\tmd5'
+      header = 'bin\tcontainment\tname\tfilename\tmd5'
    output:
       basedir_data_binning + "/{sample}_bins_sourmash_search.tsv"
    log:
