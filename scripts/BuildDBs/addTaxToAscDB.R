@@ -13,8 +13,8 @@ options(warn=2)
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(parallel))
 
-ascfield = "sseqid"
-taxcols = c("superkingdom",
+ascfield <- "sseqid"
+taxcols <- c("superkingdom",
             "phylum",
             "class",
             "order",
@@ -41,7 +41,7 @@ if (exists("snakemake")) {
 setDTthreads(threads)
 options(mc.cores = threads)
 
-database <- fread(database_file)
+database <- unique(fread(database_file))
 fieldid <- which(colnames(database) == ascfield)
 # Use grep to filter only the asc entries that are actually needed
 # Reduces the memory footprint of the merge operation.
