@@ -14,15 +14,17 @@ header = snakemake.params["header"]
 logfile = snakemake.log[0]
 
 
-with tempfile.NamedTemporaryFile('r+t') as tmpsig, tempfile.NamedTemporaryFile('r+t') as tmpcsv:
-    with open(sigfile, 'rt') as sigfile, open(outfile, 'wt') as outfile, open(logfile, 'wt') as logfile:
-     sigiter = sourmash.signature.load_signatures(sigfile)
-     outfile.write(header)
-     outfile.write('\n')
-     for sig in sigiter:
-            binfile = sig.name()
-            binname = os.path.basename(binfile)
+
+with open(sigfile, 'rt') as sigfile, open(outfile, 'wt') as outfile, open(logfile, 'wt') as logfile:
+    sigiter = sourmash.signature.load_signatures(sigfile)
+    outfile.write(header)
+    outfile.write('\n')
+    for sig in sigiter:
+        binfile = sig.name()
+        binname = os.path.basename(binfile)
+        with tempfile.NamedTemporaryFile('wt') as tmpsig, tempfile.NamedTemporaryFile('rt') as tmpcsv:
             sourmash.signature.save_signatures([sig],tmpsig)
+            tmpsig.flush()
             cmd = params + ["-o", tmpcsv.name, tmpsig.name, dbfile]
             p = subprocess.Popen(cmd,  stdout=logfile, stderr=logfile)
             p.wait()
@@ -34,8 +36,4 @@ with tempfile.NamedTemporaryFile('r+t') as tmpsig, tempfile.NamedTemporaryFile('
                 outfile.write(binname)
                 outfile.write("\t") 
                 outfile.write(line.replace(",","\t"))
-            tmpcsv.truncate()
-            tmpcsv.seek(0)
-            tmpsig.truncate()
-            tmpsig.seek(0)
 
