@@ -45,7 +45,7 @@ rule megahit_assembly:
    conda:
       "envs/KnuttReads2Bins.yml"
    threads:
-      16
+      24
    resources:
       mem_mb = 160*1000
    message:

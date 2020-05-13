@@ -70,7 +70,7 @@ Row
 ```{r}
 dat=sampleoverview_raw[read=="R1",]
 ggplotly(ggplot(dat, aes(x=sample, y=reads, fill=sample,text=paste0(dat$sample,": ",as.character(dat$reads)," Reads"))) + 
-  geom_bar(stat = "identity") + labs(fill = "Sample") + theme(legend.position = "none") + scale_fill_brewer(palette = sample_palette) + xlab ("Sample") +ylab("Read pairs"),tooltip=c("text"))
+  geom_bar(stat = "identity") + labs(fill = "Sample") + theme(legend.position = "none") +  xlab ("Sample") +ylab("Read pairs"),tooltip=c("text"))
 ```
 
 >The number of reads pairs(sequences) the raw files contained for each sample (taken from R1).
@@ -81,7 +81,7 @@ ggplotly(ggplot(dat, aes(x=sample, y=reads, fill=sample,text=paste0(dat$sample,"
 dat=sampleoverview_raw[,.(nts=sum(basepairs)),by=c("sample","read")]
 dat[,nts:=as.double(nts/10^6)]
 ggplotly(ggplot(dat, aes(x=sample, y=nts,fill=read,group=interaction(sample,read),text=paste0(dat$sample," (",dat$read,"): ",as.character(round(dat$nts))," Mbp"))) + 
-  geom_bar(stat = "identity",position = "dodge")+ scale_fill_brewer(palette = read_palette) + xlab("Sample") + ylab("Read basepairs in Mbp") + labs(fill = "Read Direction") ,tooltip=c("text")) 
+  geom_bar(stat = "identity",position = "dodge") + xlab("Sample") + ylab("Read basepairs in Mbp") + labs(fill = "Read Direction") ,tooltip=c("text")) 
 ```
 
 >The number of base pairs contained in each sample and read.
@@ -93,7 +93,7 @@ Row
 
 ```{r}
 dat = tplot_raw[type=="readlength_density" & x>=min(sampleoverview_raw$minReadLen) & x<=max(sampleoverview_raw$maxReadLen),]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() + xlab("Read Length in bp") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The read length in each sample and direction. The plot has been trimmed at the actual min and max read lengths.
@@ -104,7 +104,7 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +s
 ```{r}
 dat = tplot_raw[type=="gccontent_density" & x>=0 & x<=1,]
 dat[,x:=x*100]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("GC Content") + ylab("Density Estimate") + scale_x_continuous(labels = function(x) paste0(x, "%"))+theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() + xlab("GC Content") + ylab("Density Estimate") + scale_x_continuous(labels = function(x) paste0(x, "%"))+theme(legend.title = element_blank())) 
 ```
 
 > The distribution of the GC content in each sample and read direction. The estimated kernel density is trimmed at 0 and 100%.
@@ -116,7 +116,7 @@ Row
 
 ```{r}
 dat = tplot_raw[type=="avg_seq_qual_dens",]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() + xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The distribution of the average Phred score for the whole reads. This density estimate has not been cut!
@@ -126,7 +126,7 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +s
 ### Cycle Quality Scores
 
 ```{r}
-ggplotly(ggplot(tplot_raw[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","read","x")]) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
+ggplotly(ggplot(tplot_raw[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","read","x")]) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank()))
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read direction. See the next tab for a occurence heatmap

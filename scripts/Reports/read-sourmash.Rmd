@@ -75,7 +75,7 @@ Row
 ### Number of hashes
 
 ```{r}
-ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
+ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
 ```
 
 > The number of hashes used for each sample. If you use Sourmash to compare samples, they should have a similar depth. You could also enable sampling or use a fixed number of hashes.
@@ -85,7 +85,7 @@ ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_b
 ```{r}
 fraction_classified <- merge(lca[depth==min(depth), .(count=sum(count)), by=sample], sig[, .(sample,n_hashes,scaled)])
 fraction_classified[, fraction_classified:=count/n_hashes*databasescaled/scaled*100]
-ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
+ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
 ```
 
 > The number of classified hashes. The percentages were calculated by dividing the reported count by `n_hashes` and the ratio of the sample and database scale factor.
@@ -96,7 +96,7 @@ Row
 ### Reference Genome count
 
 ```{r}
-ggplotly(ggplot(gather) + aes(x=sample, fill=sample,group=sample)+ geom_bar(stat = "count",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Genome Count", fill="Sample")+theme(legend.position = "none"))
+ggplotly(ggplot(gather) + aes(x=sample, fill=sample,group=sample)+ geom_bar(stat = "count",position = "stack") +   labs(x="Sample", y="Genome Count", fill="Sample")+theme(legend.position = "none"))
 ```
 
 > The number of reference genomes reported for each sample
@@ -106,7 +106,7 @@ ggplotly(ggplot(gather) + aes(x=sample, fill=sample,group=sample)+ geom_bar(stat
 ```{r}
 gather[, perc_query:=f_orig_query*100]
 gather[, perc_match:=f_match*100]
-ggplotly(ggplot(gather) + aes(x=perc_match, y=perc_query, color=sample, text=name) + geom_point() + scale_color_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + scale_x_continuous(labels = function(x) paste0(x, "%")) + labs(x="Completion", y="of Sample", color="Sample"))
+ggplotly(ggplot(gather) + aes(x=perc_match, y=perc_query, color=sample, text=name) + geom_point()  + scale_y_continuous(labels = function(x) paste0(x, "%")) + scale_x_continuous(labels = function(x) paste0(x, "%")) + labs(x="Completion", y="of Sample", color="Sample"))
 ```
 
 > Each point represents a reference genome found in a sample. The point labels contain the name.

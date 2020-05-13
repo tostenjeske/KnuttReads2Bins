@@ -99,7 +99,7 @@ Row
 ### SINA alignment quality distribution
 
 ```{r}
-ggplotly(ggplot(alignedresults) + aes(x=align_quality_slv,fill=sample) + geom_histogram(bins=100) + scale_fill_brewer(palette  = sample_palette)+facet_grid(Classified~sample) + xlab("SINA Alignment Quality") + ylab("Count") + labs(fill="Sample"))
+ggplotly(ggplot(alignedresults) + aes(x=align_quality_slv,fill=sample) + geom_histogram(bins=100) +facet_grid(Classified~sample) + xlab("SINA Alignment Quality") + ylab("Count") + labs(fill="Sample"))
 ```
 
 > The disitrbution (estimated density) of the SINA alignment scores.
@@ -111,7 +111,7 @@ ggplotly(ggplot(alignedresults) + aes(x=align_quality_slv,fill=sample) + geom_hi
 hitcounts = alignedresults[,.N,by=c("sample")]
 hitcounts = merge(hitcounts,readanno_sampled_overview,by="sample")
 hitcounts[,rel:=N/reads*100]
-ggplotly(ggplot(hitcounts) + aes(x=sample,y=rel,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Sample") + ylab("SSU rRNA reads")+theme(legend.position = "none"))
+ggplotly(ggplot(hitcounts) + aes(x=sample,y=rel,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Sample") + ylab("SSU rRNA reads")+theme(legend.position = "none"))
 ```
 
 > The relative number of hits BBMap found in each sample.
@@ -136,7 +136,7 @@ ggplotly(ggplot(depth)+aes(x=sample,y=taxdepth,fill=rel) + geom_raster()+scale_f
 ```{r}
 hits = alignedresults[,.N,by=c("sample","sname")]
 hits = hits[,rel:=N/sum(N)*100,by=sample]
-ggplot(hits) + aes(y=rel,x=sample,fill=sample) + geom_boxplot() + scale_fill_brewer(palette = sample_palette) +xlab("Sample") + ylab("Percentage of total rRNA reads") +scale_y_continuous(labels = function(x) paste0(x, "%"))+ theme(legend.position = "bottom") + labs(fill="Sample")
+ggplot(hits) + aes(y=rel,x=sample,fill=sample) + geom_boxplot() + xlab("Sample") + ylab("Percentage of total rRNA reads") +scale_y_continuous(labels = function(x) paste0(x, "%"))+ theme(legend.position = "bottom") + labs(fill="Sample")
 ```
 
 

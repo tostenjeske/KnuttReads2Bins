@@ -6,3 +6,5 @@ output/
 reference_data/
 .RData
 .vscode/
+input_old/
+output_old/

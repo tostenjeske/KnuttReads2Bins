@@ -76,23 +76,22 @@ merging_strictness: default
 #
 # Preparation for classification
 #
-
-# The 3' end quality score filter applied to the reads
-# R1 unmerged and merged both called as unpaired!
-# (cutadapt -q )
-classification_qual: 20 
-# Minimum length of the reads after trimming
-# (cutadapt -m)
-# Also used as minlength for Sina
-classification_minlen: 100
-# The entropy limit passed to BBmask
-# https://jgi.doe.gov/data-and-tools/bbtools/bb-tools-user-guide/bbmask-guide/
-low_complex_entropy: 0.75
 # K-mer abundance cutoff (trim-low-abund.py -C)
 khmer_abd_cutoff: 3
 # Trim read when entire read is above this cov
 # (trim-low-abund.py -Z)
 khmer_read_trim_cov: 18
+# The entropy limit passed to BBmask
+# https://jgi.doe.gov/data-and-tools/bbtools/bb-tools-user-guide/bbmask-guide/
+low_complex_entropy: 0.75
+# The 3' end quality score filter applied to the reads
+# R1 unmerged and merged both called as unpaired!
+# (cutadapt -q )
+qualtrim_qual: 20 
+# Minimum length of the reads after trimming
+# (cutadapt -m)
+# Also used as minlength for Sina
+qualtrim_minlen: 100
 # Perform sampling on the classification read files 
 # unmerged R1 and merged reads are combined and 
 # then sampled.

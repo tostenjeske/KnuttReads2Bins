@@ -92,13 +92,13 @@ Row
 ### Number of Bins
 
 ```{r}
-ggplotly(ggplot(checkm) + aes(x=sample,fill=sample) + geom_bar() + theme(legend.position = "none") + scale_fill_brewer(palette = sample_palette) + labs(x="Sample",y="Count"))
+ggplotly(ggplot(checkm) + aes(x=sample,fill=sample) + geom_bar() + theme(legend.position = "none") +  labs(x="Sample",y="Count"))
 ```
 
 ### CheckM Bin comparison
 
 ```{r}
-ggplotly(ggplot(checkm) + aes(x=completeness,y=contamination,color=sample,label=`bin`) + geom_point() + scale_y_reverse() + labs(color="Sample") + scale_color_brewer(palette = sample_palette))
+ggplotly(ggplot(checkm) + aes(x=completeness,y=contamination,color=sample,label=`bin`) + geom_point() + scale_y_reverse() + labs(color="Sample") )
 ```
 
 Row
@@ -116,7 +116,7 @@ for(samplename in names(tetras.pca)){
 ### PCA Standard deviation plot
 
 ```{r}
-ggplotly(ggplot(tetras.pca.df) + aes(x=PC,y=`Standard deviation`,color=sample,label=`Cumulative Proportion`) + geom_line() + labs(color="Sample") + scale_color_brewer(palette = sample_palette))
+ggplotly(ggplot(tetras.pca.df) + aes(x=PC,y=`Standard deviation`,color=sample,label=`Cumulative Proportion`) + geom_line() + labs(color="Sample") )
 ```
 
 > The amount of standard deviation explained by each component is shown in this plot.

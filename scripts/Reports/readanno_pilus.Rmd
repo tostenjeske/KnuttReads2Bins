@@ -69,7 +69,7 @@ Row
 ### Aromatic aminoacid frequency
 
 ```{r}
-ggplotly(ggplot(hits) + aes(x=arom_freq,color=sample) + scale_color_brewer(palette = sample_palette) + geom_freqpoly(binwidth=0.005) + xlab("Aromatic aminoacid frequency")+ylab("Count")+labs(color=sample_palette))
+ggplotly(ggplot(hits) + aes(x=arom_freq,color=sample)  + geom_freqpoly(binwidth=0.005) + xlab("Aromatic aminoacid frequency")+ylab("Count"))
 ```
 
 > dfddf
@@ -77,7 +77,7 @@ ggplotly(ggplot(hits) + aes(x=arom_freq,color=sample) + scale_color_brewer(palet
 ### Max distance between two aromatic aminoacids
 
 ```{r}
-ggplotly(ggplot(hits) + aes(x=maxAromDist,color=sample) + scale_color_brewer(palette = sample_palette)+ geom_freqpoly(binwidth=1)  + xlab("Max distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
+ggplotly(ggplot(hits) + aes(x=maxAromDist,color=sample) + geom_freqpoly(binwidth=1)  + xlab("Max distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
 ```
 
 Row
@@ -87,7 +87,7 @@ Row
 ### Average distance between two aromatic aminoacids
 
 ```{r}
-ggplotly(ggplot(hits) + aes(x=avAromDist,color=sample) + scale_color_brewer(palette = sample_palette)+ geom_freqpoly(binwidth=1)  + xlab("Average distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
+ggplotly(ggplot(hits) + aes(x=avAromDist,color=sample) + geom_freqpoly(binwidth=1)  + xlab("Average distance between two aromatic amino acids (And Start+End)")+ylab("Count")+labs(color="Sample"))
 ```
 
 BLAST Results

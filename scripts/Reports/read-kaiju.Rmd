@@ -92,7 +92,7 @@ Row
 ```{r}
 dens = alignedresults[,density(lengthorscore)[c("x","y")],by=sample]
 dens = dens[x<=max(alignedresults$lengthorscore)&x>=min(alignedresults$lengthorscore)]
-ggplotly(ggplot(dens) + aes(x=x,y=y,color=sample) + geom_line() + scale_color_brewer(palette  = sample_palette)+ xlab("Alignment Score or Length") + ylab("(Estimated) Density") + labs(color="Sample"))
+ggplotly(ggplot(dens) + aes(x=x,y=y,color=sample) + geom_line() +  xlab("Alignment Score or Length") + ylab("(Estimated) Density") + labs(color="Sample"))
 ```
 
 > The disitrbution (estimated density) of the alignment scores/lenghts. For greedy(default) it is the score, for the MEM mode, it is the length.
@@ -102,7 +102,7 @@ ggplotly(ggplot(dens) + aes(x=x,y=y,color=sample) + geom_line() + scale_color_br
 
 ```{r}
 alignedresults.counts[,rel:=N/sum(N)*100,by=sample]
-ggplotly(ggplot(alignedresults.counts[classified=="C",]) + aes(x=sample,y=rel,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette)+ scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Sample") + ylab("Classified Reads")+theme(legend.position = "none"))
+ggplotly(ggplot(alignedresults.counts[classified=="C",]) + aes(x=sample,y=rel,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   scale_y_continuous(labels = function(x) paste0(x, "%"))+ xlab("Sample") + ylab("Classified Reads")+theme(legend.position = "none"))
 ```
 
 > The relative number of hits in each sample. This includes assignment to the "Root" taxid and "Cellular Organisms" for example.
@@ -127,7 +127,7 @@ ggplotly(ggplot(depth)+aes(x=sample,y=taxdepth,fill=rel) + geom_raster()+scale_f
 ```{r}
 dat = alignedresults[,.N,by=c("sample","match_ascs")]
 dat[,rel:=N/sum(N)*100,by=sample]
-ggplotly(ggplot(dat) + aes(x=match_ascs,y=rel,color=sample) + geom_line() + scale_color_brewer(palette  = sample_palette)+ xlab("Number of References used") + ylab("% of Classified\n Reads") + labs(color="Sample") + scale_y_continuous(labels = function(x) paste0(x, "%")))
+ggplotly(ggplot(dat) + aes(x=match_ascs,y=rel,color=sample) + geom_line() +  xlab("Number of References used") + ylab("% of Classified\n Reads") + labs(color="Sample") + scale_y_continuous(labels = function(x) paste0(x, "%")))
 ```
 
 

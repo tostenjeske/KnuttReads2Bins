@@ -103,7 +103,7 @@ merge[,(mergestats):=lapply(.SD,function(col)col/pairstomerge*100),.SD=mergestat
 merge.molten<-melt(merge,id.vars = "id",measure.vars = mergestats)
 
 ggplotly(ggplot(merge.molten, aes(x=id, y=value,fill=variable,group=id)) + 
-  geom_bar(stat = "identity") + xlab("Sample") + ylab("Percentage of read pairs") +  scale_y_continuous(labels = function(x) paste0(x, "%")) + scale_fill_brewer(palette = additional_palette) +labs(fill="Merge Result"))
+  geom_bar(stat = "identity") + xlab("Sample") + ylab("Percentage of read pairs") +  scale_y_continuous(labels = function(x) paste0(x, "%"))  +labs(fill="Merge Result"))
 ```
 
 >This plot shows the result statistics for the pairs during the BBmerge run. The trimmed sequences were used in the following workflow steps. The [algorithm](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0185056#sec006) has different reasons for rejecting a pairing with "no solution". "Ambiguous" means that the two best (lowest) (matches+constant)/(mismatches+matches) ratios were too similar or that the second best alignment ratio was below a cutoff. "Too short" are reads whose number of matches in the alignment was lower than you would expect for the complexity of the given pair. 
@@ -111,7 +111,7 @@ ggplotly(ggplot(merge.molten, aes(x=id, y=value,fill=variable,group=id)) +
 ### Insert sizes
 
 ```{r}
-ggplotly(ggplot(merge_inserts) + aes(x=x,y=y,color=sample) +geom_line() + scale_fill_brewer(palette = sample_palette) + xlab("Insert(Overlap) length in bp") + ylab("Density")+labs(color="Sample"))
+ggplotly(ggplot(merge_inserts) + aes(x=x,y=y,color=sample) +geom_line() +  xlab("Insert(Overlap) length in bp") + ylab("Density")+labs(color="Sample"))
 ```
 
 >In this plot the distribution of the insert (overlap) length in the different samples is shown with the (estimated) density.
@@ -136,7 +136,7 @@ Row
 ### Read lengths after merging
 
 ```{r}
-ggplot(sampleoverview) + aes(x=read,lower=quantile25ReadLen,upper=quantile75ReadLen,middle=medianReadLen,ymin=minReadLen,ymax=maxReadLen,group=interaction(sample,trimmed,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+scale_fill_brewer(palette = sample_palette) + xlab ("Read group") +ylab("Read length in bp") + facet_wrap(~trimmed) + labs(fill="Sample") + theme(legend.position = "bottom")
+ggplot(sampleoverview) + aes(x=read,lower=quantile25ReadLen,upper=quantile75ReadLen,middle=medianReadLen,ymin=minReadLen,ymax=maxReadLen,group=interaction(sample,trimmed,read),fill=sample) + geom_boxplot(stat="identity",position = "dodge")+ xlab ("Read group") +ylab("Read length in bp") + facet_wrap(~trimmed) + labs(fill="Sample") + theme(legend.position = "bottom")
 ```
 
 > The distribution of the read lengths within each sample for each merging operation as a boxplot, the whiskers extend to the min/max values.
@@ -147,7 +147,7 @@ ggplot(sampleoverview) + aes(x=read,lower=quantile25ReadLen,upper=quantile75Read
 ```{r}
 dat = tplot[type=="readlength_density" & x>=min(sampleoverview$minReadLen) & x<=max(sampleoverview$maxReadLen),]
 #dat = tplot[type=="gccontent_density" & x>=0 & x<=1,]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Read Length in bp") + facet_wrap(~trimmed) +  ylab("Density Estimate") +theme(legend.title = element_blank())) 
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() + xlab("Read Length in bp") + facet_wrap(~trimmed) +  ylab("Density Estimate") +theme(legend.title = element_blank())) 
 ```
 
 > The read length in each sample and merge result. The plot has been trimmed at the actual min and max read lengths.
@@ -161,7 +161,7 @@ Row
 ```{r}
 dat = tplot[type=="avg_seq_qual_dens",]
 #dat = tplot[type=="gccontent_density" & x>=0 & x<=1,]
-ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +scale_color_brewer(palette = sample_palette)+ xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank()) + facet_wrap(~trimmed))
+ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() + xlab("Average Phred Score for a whole read") + ylab("Density Estimate") +theme(legend.title = element_blank()) + facet_wrap(~trimmed))
 ```
 
 > The (estimated) density distribution of the average Phred score for the sequences. This plot has not been trimmed!
@@ -171,7 +171,7 @@ ggplotly(ggplot(dat) + aes(x=x,y=y,linetype=read,color=sample)  + geom_line() +s
 
 ```{r}
 dat = tplot[type=="cycle_qual_counts",.(median=weightedMedian(y,z)),by=c("sample","read","x","trimmed")]
-ggplotly(ggplot(dat) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+scale_color_brewer(palette = sample_palette)+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank())+ facet_wrap(~trimmed))
+ggplotly(ggplot(dat) + aes(x=x,y=median,color=sample,linetype=read) +geom_line()+ ylab( "Median phred score")+xlab("Cycle")+theme(legend.title = element_blank())+ facet_wrap(~trimmed))
 ```
 
 > The median of the phred score at the given cycle/position for a sample and read type

@@ -102,7 +102,7 @@ ggplotly(ggplot(metaquast.stats_molten, aes(x=sample, y=value, fill=variable)) +
 ```{r}
 metaquast.contigs_molten = metaquast[,c("sample",colnames(metaquast)[grepl("# contigs (",colnames(metaquast),fixed=T)]),with=F]
 metaquast.contigs_molten = melt(metaquast.contigs_molten,id.vars="sample")
-ggplotly(ggplot(metaquast.contigs_molten, aes(x=sample, y=value, fill=sample)) + scale_fill_brewer(palette = sample_palette) + 
+ggplotly(ggplot(metaquast.contigs_molten, aes(x=sample, y=value, fill=sample)) +  
   geom_bar(stat = "identity",position = "dodge")+ facet_wrap(~variable,scales = "free_y") + xlab("Sample") + ylab("Number of contigs")+theme(legend.position = "none")+theme(axis.text.x = element_text(angle = 33)))
 ```
 
@@ -129,7 +129,7 @@ ggplotly(ggplot(nxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_rever
 ```{r}
 cov.details[,Lx := 1:.N,by=sample]
 lxdat = cov.details[,approx(Nx,Lx,seq(0,100,0.05)),by=sample][!is.na(y)]
-ggplotly(ggplot(lxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_reverse() + xlab("Lx") + ylab("Number of contigs")+labs(color="Sample")+scale_color_brewer(palette = sample_palette))
+ggplotly(ggplot(lxdat) + aes(x=x,y=y,color=sample) + geom_line()+  scale_x_reverse() + xlab("Lx") + ylab("Number of contigs")+labs(color="Sample"))
 
 ```
 
@@ -165,7 +165,7 @@ Row
 ### Number of hashes
 
 ```{r}
-ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
+ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   labs(x="Sample", y="Used hashes", fill="Sample")+theme(legend.position = "none"))
 ```
 
 > The number of hashes used for each assembly. 
@@ -175,7 +175,7 @@ ggplotly(ggplot(sig) + aes(x=sample,y=n_hashes,fill=sample,group=sample)+ geom_b
 ```{r}
 fraction_classified <- merge(lca[depth==min(depth), .(count=sum(count)), by=sample], sig[, .(sample,n_hashes,scaled)])
 fraction_classified[, fraction_classified:=count/n_hashes*databasescaled/scaled*100]
-ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +  scale_fill_brewer(palette = sample_palette) + scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
+ggplotly(ggplot(fraction_classified) + aes(x=sample,y=fraction_classified,fill=sample,group=sample)+ geom_bar(stat = "identity",position = "stack") +   scale_y_continuous(labels = function(x) paste0(x, "%")) + labs(x="Sample", y="Hashes classified", fill="Sample")+theme(legend.position = "none"))
 ```
 
 > The number of classified hashes. The percentages were calculated by dividing the reported count by `n_hashes` and the ratio of the sample and database scale factor.

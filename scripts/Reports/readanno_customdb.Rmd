@@ -58,7 +58,7 @@ Row
 ```{r}
 seqlendens=hits[,density(seqlen)[c("x","y")],by="sample"]
 seqlendens=seqlendens[x>=min(hits$seqlen)&x<=max(hits$seqlen),]
-ggplotly(ggplot(seqlendens)+aes(x=x,y=y,color=sample) + scale_color_brewer(palette = sample_palette) + geom_line()+xlab("Sequence Length")+ylab("(Estimated) Density")+labs(color="Sample"))
+ggplotly(ggplot(seqlendens)+aes(x=x,y=y,color=sample)  + geom_line()+xlab("Sequence Length")+ylab("(Estimated) Density")+labs(color="Sample"))
 ```
 
 > The distribution of the sequence lengths in the database

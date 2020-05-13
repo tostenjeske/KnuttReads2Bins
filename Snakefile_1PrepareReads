@@ -582,15 +582,15 @@ rule qualtrim_merge_reads:
    threads:
       4
    resources:
-      mem_mb = 16000
+      mem_mb = 32000
    conda:
       "envs/KnuttReads2Bins.yml"
    message:
       "Quality trimming reads for {wildcards.sample} ({wildcards.trimmed}) {wildcards.qtr_read}"
    shell:
       ("bbmask.sh -Xmx{resources.mem_mb}m in={input} out=stdout.fq entropy={config[low_complex_entropy]} "
-       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {config[classification_qual]} --report=minimal "
-       "-m {config[classification_minlen]} -o {output.seq} - &> {output.cut}")
+       " t={threads} 2> {log.mask} | cutadapt -j {threads} --trim-n -q {config[qualtrim_qual]} --report=minimal "
+       "-m {config[qualtrim_minlen]} -o {output.seq} - &> {output.cut}")
 
 
 # Combine the merged and unmerged R1 reads into one file
