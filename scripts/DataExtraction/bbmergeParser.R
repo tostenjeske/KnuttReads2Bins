@@ -57,5 +57,5 @@ logdata <- parseSummaryLogFile(logfile)
 adapters <- readAdapters(adaptersfile)
 result <- cbind(logdata,adapters)
 
-write.table(result,outputfile,row.names = F,sep = "\t")
+write.table(result,outputfile,row.names = F,sep = "\t", quote=F)
 
