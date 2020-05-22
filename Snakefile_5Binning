@@ -205,28 +205,31 @@ rule sourmash_bins_lca:
 
 
 rule sourmash_compare_bins:
-   version: "1.0"
+   version: "1.1"
    input:
       expand(basedir_binning + "/sourmash/{sample}/{sample}_bins_sourmash_k{k}.sig", k=sourmash_readclass_k, sample=sample_names),
+   wildcard_constraints:
+      comptype = "|".join(samplecomptypes)  
    params:
       regex = r'^.+/bins/(.+)\.fa$',
       k = sourmash_readclass_k,
-      dir = basedir_data_binning
+      dir = basedir_data_binning,
+      typearg = lambda w: "--containment " if w["comptype"]==samplecomptypes[0] else ""
    output:
-      tsv = basedir_data_binning + "/sourmash_bin_comparison.tsv",
-      np = temp(basedir_data_binning + "/sourmash_bin_comparison"),
-      labels = temp(basedir_data_binning + "/sourmash_bin_comparison.labels.txt"),
-      png = expand(basedir_data_binning + "/sourmash_bin_comparison.{type}.png", type=["dendro","hist","matrix"], allow_missing=True)
+      tsv = basedir_data_binning + "/sourmash_bin_comparison_{comptype}.tsv",
+      np = basedir_data_binning + "/sourmash_bin_comparison_{comptype}",
+      labels = basedir_data_binning + "/sourmash_bin_comparison_{comptype}.labels.txt",
+      png = expand(basedir_data_binning + "/sourmash_bin_comparison_{comptype}.{type}.png", type=["dendro","hist","matrix"], allow_missing=True)
    log:
-      basedir_readclass + "/sourmash/sourmash_bin_comparison.log"
+      basedir_readclass + "/sourmash/sourmash_bin_comparison_{comptype}.log"
    benchmark:
-      basedir_bench_binning + "/sourmash_bin_comparison.tsv"
+      basedir_bench_binning + "/sourmash_bin_comparison_{comptype}.tsv"
    conda:
       "envs/KnuttReads2Bins.yml"
    message:
-      "Comparing the bins using sourmash"
+      "Comparing the bins using sourmash based on {wildcards.comptype}."
    shell:
-      ("{{ sourmash compare -k {params.k} {input} --csv {output.tsv} --output {output.np} && "
+      ("{{ sourmash compare {params.typearg}-k {params.k} {input} --csv {output.tsv} --output {output.np} && "
        "scripts/Pipeline/sourmashlabels.py {output.labels} '{params.regex}' && "
        "sourmash plot --labels --output-dir {params.dir} {output.np} ; }} &> {log} && "
        "sed -i -e $(echo 1c$(cat {output.labels} | tr '\n' ',')) {output.tsv} && "
@@ -266,7 +269,8 @@ rule classify_bins:
       taxdir = rules.download_ncbi_tax.params.dir,
       prefix = basedir_binning + "/BAT/{sample}/{sample}"
    output:
-      basedir_binning + "/BAT/{sample}/{sample}.bin2classification.txt"
+      binclass = basedir_binning + "/BAT/{sample}/{sample}.bin2classification.txt",
+      orflca =  basedir_binning + "/BAT/{sample}/{sample}.ORF2LCA.txt"
    log:
       basedir_binning + "/BAT/{sample}/{sample}_BAT.log"
    benchmark:
@@ -306,7 +310,7 @@ rule formatbat:
       binmap = rules.binmap.output
    output:
       dat = basedir_data_binning + "/{sample}_bat.tsv",
-      krona = temp(basedir_data_binning + "/{sample}_bat_krona.tsv")
+      krona = basedir_data_binning + "/{sample}_bat_krona.tsv"
    conda:
       "envs/R.yml"
    message:
@@ -355,7 +359,7 @@ rule binningSourmash:
       expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bins_sourmash_search.tsv", sample=sample_names),
-      basedir_data_binning + "/sourmash_bin_comparison.tsv"
+      expand(basedir_data_binning + "/sourmash_bin_comparison_{comptype}.tsv", comptype=samplecomptypes)
 
 
 rule binningRefData:

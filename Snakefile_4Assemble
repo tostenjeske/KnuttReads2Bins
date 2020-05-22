@@ -83,7 +83,7 @@ rule bandage_info_kmer:
    input:
       rules.megahit_fastg.output
    output:
-      temp(basedir_data_assembly + "/{sample}_assembly_graph_k{kmer}.tsv")
+      basedir_data_assembly + "/{sample}_assembly_graph_k{kmer}.tsv"
    conda:
       "envs/KnuttReads2Bins.yml"
    message:
@@ -174,7 +174,7 @@ rule cal_map_cov:
    input:
       sam = rules.map_reads.output.sam
    output:
-      cov = temp(basedir_data_assembly + "/{sample}_cov_pileup_details_temp.tsv"),
+      cov = basedir_data_assembly + "/{sample}_cov_pileup_details_temp.tsv",
       cov_sum = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_cov.log",
       unmappedsp = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_unmapped_merged.fastq.gz",
       unmappedR1 = basedir_assembly + "/Readmapping/{sample}/{sample}_pileup_unmapped_R1.fastq.gz",
@@ -355,7 +355,7 @@ rule sourmash_contig_lca_summarize_krona:
    input:
       basedir_data_assembly + "/{sample}_contigs_sourmash_lca.tsv"
    output:
-      temp(basedir_data_assembly + "/{sample}_contigs_sourmash_lca_krona.tsv")
+      basedir_data_assembly + "/{sample}_contigs_sourmash_lca_krona.tsv"
    conda:
       "envs/R.yml"
    message:
@@ -445,7 +445,7 @@ rule formatcat:
       seq = rules.classify_contigs.input.contigs
    output:
       dat = basedir_data_assembly + "/{sample}_contigs_cat.tsv",
-      krona = temp(basedir_data_assembly + "/{sample}_contigs_cat_krona.tsv")
+      krona = basedir_data_assembly + "/{sample}_contigs_cat_krona.tsv"
    conda:
       "envs/R.yml"
    message:

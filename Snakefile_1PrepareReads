@@ -104,7 +104,7 @@ rule fastqc_any_file:
    wildcard_constraints:
       file = "^(?!" + basedir_reporting + "/FastQC/).+"
    output:
-      temp(expand("{{file}}_fastqc.{suffix}",suffix=["html","zip"],allow_missing=True))
+      expand("{{file}}_fastqc.{suffix}",suffix=["html","zip"],allow_missing=True)
    resources:
       mem_mb = lambda wildcards, threads: threads * 250
    threads:
@@ -137,8 +137,8 @@ rule rawseqdata_sample_read:
    input:
       reads = single_reads_input
    output:
-      overview = temp(raw_seqdata + "/{sample}_{read}_raw_seqdat_overview.tsv"),
-      toplot = temp(raw_seqdata + "/{sample}_{read}_raw_seqdat_plotdata.tsv"),
+      overview = raw_seqdata + "/{sample}_{read}_raw_seqdat_overview.tsv",
+      toplot = raw_seqdata + "/{sample}_{read}_raw_seqdat_plotdata.tsv",
    benchmark:
       basedir_bench_prep + "/raw_seqdata_{sample}_{read}.tsv"
    conda:
@@ -243,8 +243,8 @@ rule trimseqdata_sample_read:
    input:
       reads = trimming_res + "{read}_adptr_tr.fastq.gz",
    output:
-      overview = temp(trimming_data + "/{sample}_{read}_adptr_tr_seqdat_overview.tsv"),
-      toplot = temp(trimming_data + "/{sample}_{read}_adptr_tr_seqdat_plotdata.tsv"),
+      overview = trimming_data + "/{sample}_{read}_adptr_tr_seqdat_overview.tsv",
+      toplot = trimming_data + "/{sample}_{read}_adptr_tr_seqdat_plotdata.tsv",
    benchmark:
       basedir_bench_prep + "/trim_seqdata_{sample}_{read}.tsv"
    conda:
@@ -278,7 +278,7 @@ rule trimseqcompdata_sample_read:
       before = single_reads_input,
       after = trimming_res + "{read}_adptr_tr.fastq.gz",
    output:
-      temp(trimming_data + "/{sample}_{read}_adptr_tr_impact.tsv")
+      trimming_data + "/{sample}_{read}_adptr_tr_impact.tsv"
    benchmark:
       basedir_bench_prep + "/trim_impact_{sample}_{read}.tsv"
    conda:
@@ -445,8 +445,8 @@ rule mergeseqdata_sample_read:
    input:
       reads = merge_res_file + "{merge_read}.fastq.gz"
    output:
-      overview = temp(merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_overview.tsv"),
-      toplot = temp(merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_plotdata.tsv"),
+      overview = merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_overview.tsv",
+      toplot = merging_seqdata + "/{sample}_{merge_read}_merge_{trimmed}_seqdat_plotdata.tsv",
    benchmark:
       basedir_bench_prep + "/merge_seqdata_{sample}_{trimmed}_{merge_read}.tsv"
    conda:
@@ -547,8 +547,8 @@ rule trim_kmers:
    params:
       res = "{sample}_merge_{trimmed}_{qtr_read}.fastq.gz.abundtrim"
    output:
-      seq = temp(merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"),
-      cut = temp(merge_data + "/{sample}_{qtr_read}_kmertr_{trimmed}.tsv"),
+      seq = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz",
+      cut = merge_data + "/{sample}_{qtr_read}_kmertr_{trimmed}.tsv",
    log:
       mask = merge_res_file + "{qtr_read}_qtr_kmertr.log",
    benchmark:
@@ -574,13 +574,13 @@ rule qualtrim_merge_reads:
       merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
    output:
       seq = merge_res_file + "{qtr_read}_qtr.fastq.gz",
-      cut = temp(merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv"),
+      cut = merge_data + "/{sample}_{qtr_read}_qual_cutadapt_{trimmed}.tsv",
    log:
       mask = merge_res_file + "{qtr_read}_mask.log",
    benchmark:
       basedir_bench_prep + "/qtr_{trimmed}_{sample}_{qtr_read}.tsv"
    threads:
-      4
+      8
    resources:
       mem_mb = 32000
    conda:
@@ -647,8 +647,8 @@ rule qtrseqdata_sample_read:
    input:
       reads = merge_res_file + "{qtr_read}_qtr.fastq.gz"
    output:
-      overview = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_overview.tsv"),
-      toplot = temp(merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_plotdata.tsv"),
+      overview = merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_overview.tsv",
+      toplot = merging_seqdata + "/{sample}_qtr_{trimmed}_{qtr_read}_seqdat_plotdata.tsv",
    benchmark:
       basedir_bench_prep + "/qtr_{trimmed}_seqdata_{sample}_{trimmed}_{qtr_read}.tsv"
    conda:
@@ -697,7 +697,7 @@ rule mask_data_sample_read:
    input:
       merge_res_file + "{qtr_read}_mask.log"
    output:
-      temp(merge_data + "/{sample}_{qtr_read}_masking_{trimmed}.tsv")
+      merge_data + "/{sample}_{qtr_read}_masking_{trimmed}.tsv"
    conda:
       "envs/R.yml"
    message:
@@ -715,7 +715,7 @@ rule mask_data_sample:
       colnames = ["read"],
       vals = qtr_reads
    output:
-      out = temp(merge_data + "/{sample}_masking_{trimmed}.tsv")
+      out = merge_data + "/{sample}_masking_{trimmed}.tsv"
    message:
       "Combining masiking data for {wildcards.sample} ({wildcards.trimmed})"
    script:
@@ -731,7 +731,7 @@ rule kmertrim_data_sample:
       colnames = ["read"],
       vals = qtr_reads
    output:
-      out = temp(merge_data + "/{sample}_kmertr_{trimmed}.tsv")
+      out = merge_data + "/{sample}_kmertr_{trimmed}.tsv"
    message:
       "Combining kmer trim data for {wildcards.sample} ({wildcards.trimmed})"
    script:
@@ -747,7 +747,7 @@ rule qualitytrim_data_sample:
       colnames = ["read"],
       vals = qtr_reads
    output:
-      out = temp(merge_data + "/{sample}_qual_cutadapt_{trimmed}.tsv")
+      out = merge_data + "/{sample}_qual_cutadapt_{trimmed}.tsv"
    message:
       "Combining quality trimming data for {wildcards.sample} ({wildcards.trimmed})"
    script:
@@ -779,7 +779,7 @@ rule qtrseqcompdata_sample_read:
       before = merge_res_file + "{qtr_read}.fastq.gz",
       after = merge_res_file + "{qtr_read}_qtr_kmertr.fastq.gz"
    output:
-      temp(merging_seqdata + "/{sample}_{qtr_read}_qtr_impact.tsv")
+      merging_seqdata + "/{sample}_{qtr_read}_qtr_impact.tsv"
    benchmark:
       basedir_bench_prep + "/qtr_{trimmed}_impact_{sample}_{qtr_read}.tsv"
    conda:

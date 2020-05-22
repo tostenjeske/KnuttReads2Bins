@@ -212,8 +212,8 @@ rule download_hyddb:
 rule download_cazydb:
    version: "1.0"
    output:
-      fasta = temp(basedir_db_readanno + "/CAZyDB.fasta"),
-      tsv = temp(basedir_db_readanno + "/raw_CAZyDB.tsv"),
+      fasta = basedir_db_readanno + "/CAZyDB.fasta",
+      tsv = basedir_db_readanno + "/raw_CAZyDB.tsv",
       descr = basedir_db_readanno + "/CAZyDB-fam-activities.txt"
    message:
       "Downloading CAZyDB data"
@@ -357,7 +357,7 @@ rule cazyfunkronadata_sample:
    input:
       expand(basedir_data_readanno + "/{sample}_readanno_CAZyDB.tsv", sample=sample_names)
    output:
-      temp(basedir_data_readanno + "/{sample}_readanno_CAZyDB_funkrona.tsv")
+      basedir_data_readanno + "/{sample}_readanno_CAZyDB_funkrona.tsv"
    conda:
       "envs/R.yml"
    message:
@@ -372,7 +372,7 @@ rule read_anno_krona_file:
    input:
       basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv"
    output:
-      temp(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}_krona.tsv")
+      basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}_krona.tsv"
    conda:
       "envs/R.yml"
    message:

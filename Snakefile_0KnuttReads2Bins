@@ -67,7 +67,7 @@ rule all:
       expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names),
       expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names),
       expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
-      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.tsv", comptype=samplecomptypes),
       expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names),
       expand(basedir_data_readanno + "/{sample}_readanno_{dbswithkrona}.tsv", dbswithkrona=integrateddbs + customdbs, sample=sample_names),
       expand(basedir_assembly + "/MEGAHIT/{sample}/final.contigs.fa", sample=sample_names),
@@ -84,7 +84,8 @@ rule all:
       expand(basedir_data_binning + "/{sample}_bins_sourmash_classification.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bins_sourmash_signature.tsv", sample=sample_names),
       expand(basedir_data_binning + "/{sample}_bat.tsv", sample=sample_names),
-      basedir_data_binning + "/sourmash_bin_comparison.tsv"
+      expand(basedir_data_binning + "/{sample}_bins_sourmash_search.tsv", sample=sample_names),
+      expand(basedir_data_binning + "/sourmash_bin_comparison_{comptype}.tsv", comptype=samplecomptypes)
    message:
       "Ran everything, yay!"
 

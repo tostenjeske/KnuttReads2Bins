@@ -16,7 +16,7 @@ basedir_data_readclass = basedir_data + "/ReadClassification"
 
 silva_fasta_url = "https://www.arb-silva.de/fileadmin/silva_databases/release_{config[silva_version]}/Exports/SILVA_{config[silva_version]}_SSURef_NR99_tax_silva.fasta.gz"
 sourmash_readclass_k = "51"
-
+samplecomptypes = ["cont", "sim"]
 # 51
 sourmash_lca_url = "https://files.osf.io/v1/resources/wxf9z/providers/osfstorage/5e08bd851a65e9004971ca85?action=download&direct&version=1"
 sourmash_lca_name = "gtdb-release89-k51-lowrank.lca.json.gz"
@@ -191,7 +191,7 @@ rule sina_krona_file:
    params:
       taxfield = config["sina_taxfield"]
    output:
-      kronatext = temp(basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv")
+      kronatext = basedir_data_readclass + "/{sample}_readclassification_SSU_krona.tsv"
    message:
       "Creating SSU Krona data for {wildcards.sample}"
    script:
@@ -322,7 +322,7 @@ rule kaiju_sample:
       greedy_eval = "-E "+str(config["kaiju_greedy_eval"]) if config["kaiju_mode"]=="greedy" and config["kaiju_greedy_eval"] >=0 else "", 
       lowcomplexfilter = "-x" if config["kaiju_lowcomplex_filter"] else "-X" 
    output:
-      base = temp(basedir_readclass + "/kaiju/{sample}/{sample}_kaiju.tsv"),
+      base = basedir_readclass + "/kaiju/{sample}/{sample}_kaiju.tsv",
       out = basedir_readclass + "/kaiju/{sample}/{sample}_kaiju_tax.tsv"
    log:
       basedir_readclass + "/kaiju/{sample}/{sample}_kaiju.log"
@@ -366,7 +366,7 @@ rule kaiju_krona_file:
       nodes = rules.kaiju_sample.input.nodes,
       names = rules.kaiju_sample.input.names
    output:
-      kronatext = temp(basedir_data_readclass + "/{sample}_readclassification_kaiju_krona.tsv")
+      kronatext = basedir_data_readclass + "/{sample}_readclassification_kaiju_krona.tsv"
    conda:
       "envs/KnuttReads2Bins.yml"
    message:
@@ -529,7 +529,7 @@ rule sourmash_lca_summarize_krona:
    input:
       basedir_data_readclass + "/{sample}_readclassification_sourmash_lca.tsv"
    output:
-      temp(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca_krona.tsv")
+      basedir_data_readclass + "/{sample}_readclassification_sourmash_lca_krona.tsv"
    conda:
       "envs/R.yml"
    message:
@@ -539,39 +539,43 @@ rule sourmash_lca_summarize_krona:
 
 
 rule sourmash_compare_samples:
-   version: "1.0"
+   version: "1.1"
    input:
       expand(basedir_readclass + "/sourmash/{sample}/{sample}_sourmash_k{k}.sig", k=sourmash_readclass_k, sample=sample_names),
+   wildcard_constraints:
+      comptype = "|".join(samplecomptypes)   
    params:
       regex = r'output/ReadPrep/AnalysisReads_tr/(.+)/\1_analysis_tr_unsmpld.fastq.gz$',
       k = sourmash_readclass_k,
-      dir = basedir_data_readclass
+      dir = basedir_data_readclass,
+      typearg = lambda w: "--containment " if w["comptype"]==samplecomptypes[0] else ""
    output:
-      tsv = basedir_data_readclass + "/sourmash_sample_comparison.tsv",
-      np = temp(basedir_data_readclass + "/sourmash_sample_comparison"),
-      labels = temp(basedir_data_readclass + "/sourmash_sample_comparison.labels.txt"),
-      png = expand(basedir_data_readclass + "/sourmash_sample_comparison.{type}.png", type=["dendro","hist","matrix"], allow_missing=True)
+      tsv = basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.tsv",
+      np = basedir_data_readclass + "/sourmash_sample_comparison_{comptype}",
+      labels = basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.labels.txt",
+      png = expand(basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.{type}.png", type=["dendro","hist","matrix"], allow_missing=True)
    log:
-      basedir_readclass + "/sourmash/sourmash_sample_comparison.log"
+      basedir_readclass + "/sourmash/sourmash_sample_comparison_{comptype}.log"
    benchmark:
-      basedir_bench_readclass + "/sourmash_comparison.tsv"
+      basedir_bench_readclass + "/sourmash_comparison_{comptype}.tsv"
    conda:
       "envs/KnuttReads2Bins.yml"
    message:
-      "Comparing the samples using sourmash"
+      "Comparing the samples using sourmash based on {wildcards.comptype}."
    shell:
-      ("{{ sourmash compare -k {params.k} {input} --csv {output.tsv} --output {output.np} && "
+      ("{{ sourmash compare {params.typearg}-k {params.k} {input} --csv {output.tsv} --output {output.np} && "
        "scripts/Pipeline/sourmashlabels.py {output.labels} '{params.regex}' && "
        "sourmash plot --labels --output-dir {params.dir} {output.np} ; }} &> {log} && "
        "sed -i -e $(echo 1c$(cat {output.labels} | tr '\n' ',')) {output.tsv} && "
-       "sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output.tsv}")
+       "sed -i -E 's/(\"([^\"]*)\")?,/\\2\t/g' {output.tsv} && "
+       "sed -i 's/[[:blank:]]*$//' {output.tsv}")
 
 
 rule sourmash:
    version: "1.0"
    input:
       expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
-      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.tsv", comptype=samplecomptypes),
       expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names)
    message:
       "Sourmash gather and lca read classification done for all samples"
@@ -607,7 +611,7 @@ rule sourmashReport:
       sig = expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names),
       gather = expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_gather.tsv", sample=sample_names),
       lca = expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_lca.tsv", sample=sample_names),
-      comparison = basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      comparison = basedir_data_readclass + "/sourmash_sample_comparison_sim.tsv",
       commons = "scripts/Reports/commonReport.R",
    params:
       samples = sample_names
@@ -650,7 +654,7 @@ rule classifyReads:
       expand(basedir_data_readclass + "/{sample}_readclassification_SSU.tsv", sample=sample_names),
       expand(basedir_data_readclass + "/{sample}_readclassification_kaiju.tsv", sample=sample_names),
       expand(basedir_data_readclass + "/{sample}_readclassification_sourmash_{sourtype}.tsv", sample=sample_names, sourtype=["lca", "gather"]),
-      basedir_data_readclass + "/sourmash_sample_comparison.tsv",
+      expand(basedir_data_readclass + "/sourmash_sample_comparison_{comptype}.tsv", comptype=samplecomptypes),
       expand(basedir_data_readclass + "/{sample}_sourmash_signature.tsv", sample=sample_names)
    message:
       "Ran all read classification methods"
