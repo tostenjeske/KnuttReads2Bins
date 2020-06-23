@@ -249,7 +249,7 @@ rule jgi_depthdata_sample:
 rule metaquast_install:
    version: "1.0"
    output:
-      directory(basedir_dbs + "/MetaQUAST/")
+      directory(basedir_dbs + "/MetaQUAST")
    log:
       basedir_dbs + "/MetaQUAST.log"
    benchmark:
