@@ -15,7 +15,7 @@ read_input_dir: "input"
 # {sample}: The name of the sample
 # {read,R1|R2}: The read direction of the read, either R1 or R2
 # They can either be ".fastq"(.fq) or ".fastq.gz"(fq.gz) files
-paired_read_files: "{sample}_{read}.fastq.gz"
+paired_read_files: "{sample}_{read}.fastq.gz" # standard naming output of the MiSeq system is :"{sample}_{ID}_L001_{read}_001.fastq.gz" be aware and change name or code accordingly
 
 # Where to place the output files
 output_dir: "output"
