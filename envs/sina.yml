@@ -3,4 +3,4 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - sina=1.6.1
+  - sina=1.7.2
